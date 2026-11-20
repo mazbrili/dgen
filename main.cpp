@@ -468,8 +468,10 @@ next_rom:
 			if ((first) && ((optind + 1) == argc))
 				goto clean_up;
 		}
-		else
+		else {
 			pd_message("Loaded \"%s\".", rom);
+			pd_rom_loaded(rom);
+		}
 	}
 	else
 		pd_message("No cartridge.");

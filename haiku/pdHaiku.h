@@ -14,5 +14,9 @@ void dgen_haiku_set_paused(bool paused);
 void dgen_haiku_toggle_fullscreen(void);
 void dgen_haiku_set_scale(int scale);
 void dgen_haiku_open_rom(const char *path);
+void dgen_haiku_request_close_cartridge(void);
+void dgen_haiku_request_save_state(int slot);
+void dgen_haiku_request_load_state(int slot);
+void dgen_haiku_request_game_genie(const char *code);
 
 #endif

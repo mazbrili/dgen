@@ -6361,6 +6361,10 @@ static bool mouse_motion_released(SDL_Event *event)
 
 #define MOUSE_SHOW_USECS (unsigned long)(2 * 1000000)
 
+void pd_rom_loaded(const char *)
+{
+}
+
 // The massive event handler!
 // I know this is an ugly beast, but please don't be discouraged. If you need
 // help, don't be afraid to ask me how something works. Basically, just handle

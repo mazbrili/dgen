@@ -3,6 +3,7 @@
 #include <Bitmap.h>
 #include <InterfaceDefs.h>
 #include <Message.h>
+#include <Window.h>
 
 #include "md.h"
 #include "pdHaiku.h"
@@ -10,7 +11,8 @@
 DGenView::DGenView(BRect frame)
 	: BView(frame, "DGen video", B_FOLLOW_ALL, B_WILL_DRAW),
 	  fBitmap(NULL),
-	  fPad(MD_PAD_UNTOUCHED)
+	  fPad(MD_PAD_UNTOUCHED),
+	  fDropTarget(false)
 {
 	SetViewColor(ui_color(B_PANEL_BACKGROUND_COLOR));
 }
@@ -23,6 +25,34 @@ void DGenView::Draw(BRect)
 		return;
 	}
 	DrawBitmap(fBitmap, fBitmap->Bounds(), Bounds());
+	if (fDropTarget) {
+		SetHighColor(ui_color(B_KEYBOARD_NAVIGATION_COLOR));
+		SetPenSize(3);
+		StrokeRect(Bounds().InsetBySelf(2, 2));
+		SetPenSize(1);
+	}
+}
+
+void DGenView::MouseMoved(BPoint, uint32 code, const BMessage *dragMessage)
+{
+	bool accepting = dragMessage != NULL && dragMessage->HasRef("refs") &&
+		code != B_EXITED_VIEW && code != B_OUTSIDE_VIEW;
+	if (accepting != fDropTarget) {
+		fDropTarget = accepting;
+		Invalidate();
+	}
+}
+
+void DGenView::MessageReceived(BMessage *message)
+{
+	if (message->WasDropped()) {
+		fDropTarget = false;
+		Invalidate();
+		if (Window() != NULL)
+			Window()->PostMessage(message);
+		return;
+	}
+	BView::MessageReceived(message);
 }
 
 void DGenView::SetFrameBitmap(BBitmap *bitmap)

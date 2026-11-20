@@ -63,6 +63,7 @@ void pd_help();
 // This is called before each frame to handle events, and update the MegaDrive
 // accordingly. It returns 1 to continue playing the game, or 0 to quit.
 int pd_handle_events(md &megad);
+void pd_rom_loaded(const char *path);
 
 // Tells whether DGen stopped intentionally so emulation can resume without
 // skipping frames.

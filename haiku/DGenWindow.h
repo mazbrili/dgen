@@ -9,6 +9,7 @@ class BMenuItem;
 class BMenuBar;
 class BMessage;
 class BStringView;
+class BWindow;
 class DGenView;
 
 class DGenWindow : public BWindow {
@@ -31,6 +32,7 @@ private:
 	void ToggleFullScreen();
 
 	BFilePanel *fOpenPanel;
+	BWindow *fGameGenieWindow;
 	BMenuBar *fMenuBar;
 	BMenu *fRecentMenu;
 	DGenView *fView;

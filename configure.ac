@@ -137,14 +137,16 @@ AS_IF(
 			[haiku-libs],
 			[AS_HELP_STRING([--with-haiku-libs=LIBS], [libraries for the Haiku front end])],
 			[HAIKU_LIBS=$withval],
-			[HAIKU_LIBS="-lbe -ltracker -ltranslation -llocalestub"]
+			[HAIKU_LIBS="-lbe -ltracker -lmedia -llocalestub"]
 		)
 		AS_IF(
 			[test -n "$HAIKU_ROOT"],
 			[
 				for haiku_dir in \
-					headers headers/os headers/os/app headers/os/interface \
-					headers/os/media headers/os/storage headers/os/support \
+				headers headers/os headers/os/add-ons/graphics \
+				headers/os/app headers/os/interface headers/os/locale \
+				headers/os/media headers/os/storage \
+				headers/os/support \
 					headers/os/kernel \
 					headers/private/app headers/private/interface \
 					headers/private/storage headers/private/support \
@@ -161,14 +163,29 @@ AS_IF(
 		LIBS="$LIBS $HAIKU_LIBS"
 		AC_LANG_PUSH([C++])
 		AC_CHECK_HEADERS(
-			[Application.h InterfaceDefs.h FilePanel.h SoundPlayer.h],
+			[Application.h Catalog.h InterfaceDefs.h FilePanel.h SoundPlayer.h],
 			[],
 			[AC_MSG_ERROR([Haiku API headers not found; use --with-haiku-root=DIR])]
 		)
 		AC_LANG_POP([C++])
+		AC_CHECK_PROGS([HAIKU_RC], [rc])
+		AC_CHECK_PROGS([HAIKU_XRES], [xres])
+		AC_CHECK_PROGS([OBJCOPY], [objcopy])
+		AS_IF(
+			[test -z "$HAIKU_RC" || test -z "$HAIKU_XRES" || test -z "$OBJCOPY"],
+			[AC_MSG_ERROR([rc, xres and objcopy are required by the Haiku front end])]
+		)
+		AS_CASE(
+			[$host_os],
+			[haiku*], [haiku_native_resources=yes],
+			[haiku_native_resources=no]
+		)
+		AM_CONDITIONAL([HAIKU_NATIVE_RESOURCES],
+			[test "x$haiku_native_resources" = xyes])
 	],
 	[
 		AC_MSG_NOTICE([using the SDL front end])
+		AM_CONDITIONAL([HAIKU_NATIVE_RESOURCES], [false])
 
 		dnl Check for SDL libs.
 		AC_CHECK_HEADERS([SDL.h])

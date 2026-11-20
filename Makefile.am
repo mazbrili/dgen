@@ -12,6 +12,10 @@ SUBDIRS = haiku
 AM_CPPFLAGS += -I$(top_srcdir)/haiku $(HAIKU_CPPFLAGS)
 dgen_DEPENDENCIES = haiku/libpd.a
 dgen_LDADD = haiku/libpd.a
+if !HAIKU_NATIVE_RESOURCES
+dgen_DEPENDENCIES += dgen.rsrc.o
+dgen_LDADD += dgen.rsrc.o
+endif
 else
 SUBDIRS = sdl
 AM_CPPFLAGS += -I$(top_srcdir)/sdl
@@ -61,7 +65,21 @@ endif
 
 man_MANS = dgen.1 dgenrc.5 dgen_tobin.1
 
-EXTRA_DIST = sample.dgenrc
+EXTRA_DIST = sample.dgenrc haiku-app.env haiku/dgen.rdef haiku/make-icon.py \
+	packaging/build-hpkg.sh packaging/description.txt
+CLEANFILES = dgen.rsrc dgen.rsrc.o
+
+dgen.rsrc: haiku/dgen.rdef
+	$(HAIKU_RC) -o $@ $<
+
+dgen.rsrc.o: dgen.rsrc
+	$(LD) -r -b binary dgen.rsrc -o $@
+	$(OBJCOPY) --rename-section .data=.cosmoe_rsrc $@
+
+if HAIKU_NATIVE_RESOURCES
+all-local: dgen dgen.rsrc
+	$(HAIKU_XRES) -o dgen dgen.rsrc
+endif
 
 # dgen
 dgen_LDADD += $(DGEN_LIBS)

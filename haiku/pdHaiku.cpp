@@ -1,5 +1,7 @@
 #include "pdHaiku.h"
 
+#include "DGenLocale.h"
+
 #include <Bitmap.h>
 #include <ByteOrder.h>
 #include <MediaDefs.h>
@@ -31,6 +33,10 @@ struct sndinfo sndi;
 bool pd_freeze = false;
 const char *pd_options = "";
 
+extern int slot;
+void md_save(md &megad);
+void md_load(md &megad);
+
 static DGenApp *sApp = NULL;
 static std::atomic<bool> sAppReady(false);
 static std::atomic<bool> sWindowReady(false);
@@ -58,6 +64,13 @@ static std::atomic<uint32_t> sPrevPad[2];
 static std::mutex sPathLock;
 static std::string sPendingPath;
 static bool sHasPendingPath = false;
+static std::mutex sActionLock;
+static int sPendingSlot = 0;
+static bool sPendingSave = false;
+static bool sPendingLoad = false;
+static bool sPendingClose = false;
+static std::string sPendingGenie;
+static bool sHasPendingGenie = false;
 
 static md *sMegad = NULL;
 
@@ -117,7 +130,7 @@ int pd_graphics_init(int, int want_pal, int)
 	sFrameBuffer = (unsigned char *)calloc(mdscr.h, mdscr.pitch);
 	if (sFrameBuffer == NULL) {
 		mdscr.data = NULL;
-		post_status("Could not allocate the video frame buffer.");
+		post_status(B_TRANSLATE("Could not allocate the video frame buffer."));
 		return 0;
 	}
 	mdscr.data = sFrameBuffer;
@@ -125,7 +138,7 @@ int pd_graphics_init(int, int want_pal, int)
 	sBitmap = new BBitmap(BRect(0, 0, sVisibleWidth - 1,
 		sVisibleHeight - 1), B_RGB32);
 	if (sBitmap->InitCheck() != B_OK) {
-		post_status("Could not allocate the video bitmap.");
+		post_status(B_TRANSLATE("Could not allocate the video bitmap."));
 		return 0;
 	}
 
@@ -302,6 +315,45 @@ void pd_help()
 	printf("  Haiku front end: no platform-specific options.\n");
 }
 
+void pd_rom_loaded(const char *path)
+{
+	if (path == NULL || path[0] == '\0')
+		return;
+	if (dgen_app_instance != NULL)
+		dgen_app_instance->AddRecentFile(path);
+	if (sWindow != NULL)
+		sWindow->PostMessage(MSG_REBUILD_RECENT);
+}
+
+void dgen_haiku_request_close_cartridge(void)
+{
+	std::lock_guard<std::mutex> lock(sActionLock);
+	sPendingClose = true;
+}
+
+void dgen_haiku_request_save_state(int stateSlot)
+{
+	std::lock_guard<std::mutex> lock(sActionLock);
+	sPendingSlot = stateSlot < 0 ? 0 : (stateSlot > 9 ? 9 : stateSlot);
+	sPendingSave = true;
+}
+
+void dgen_haiku_request_load_state(int stateSlot)
+{
+	std::lock_guard<std::mutex> lock(sActionLock);
+	sPendingSlot = stateSlot < 0 ? 0 : (stateSlot > 9 ? 9 : stateSlot);
+	sPendingLoad = true;
+}
+
+void dgen_haiku_request_game_genie(const char *code)
+{
+	if (code == NULL)
+		return;
+	std::lock_guard<std::mutex> lock(sActionLock);
+	sPendingGenie = code;
+	sHasPendingGenie = true;
+}
+
 int pd_handle_events(md &megad)
 {
 	sMegad = &megad;
@@ -318,14 +370,58 @@ int pd_handle_events(md &megad)
 			sHasPendingPath = false;
 		}
 		if (sMegad->load(path.c_str()) != 0) {
-			post_status("Could not open that ROM.");
+			post_status(B_TRANSLATE("Could not open that ROM."));
 		} else {
-			if (dgen_app_instance != NULL)
-				dgen_app_instance->AddRecentFile(path.c_str());
-			if (sWindow != NULL)
-				sWindow->PostMessage(MSG_REBUILD_RECENT);
-			post_status("ROM loaded.");
+			pd_rom_loaded(path.c_str());
+			post_status(B_TRANSLATE("ROM loaded."));
 		}
+	}
+
+	bool saveState = false;
+	bool loadState = false;
+	bool closeCartridge = false;
+	bool applyGenie = false;
+	int stateSlot = 0;
+	std::string genieCode;
+	{
+		std::lock_guard<std::mutex> lock(sActionLock);
+		saveState = sPendingSave;
+		loadState = sPendingLoad;
+		closeCartridge = sPendingClose;
+		applyGenie = sHasPendingGenie;
+		stateSlot = sPendingSlot;
+		genieCode = sPendingGenie;
+		sPendingSave = false;
+		sPendingLoad = false;
+		sPendingClose = false;
+		sHasPendingGenie = false;
+		sPendingGenie.clear();
+	}
+	if (closeCartridge) {
+		megad.plugged = false;
+		megad.reset();
+		post_status(B_TRANSLATE("Cartridge closed."));
+	}
+	if (saveState || loadState) {
+		slot = stateSlot;
+		if (saveState)
+			md_save(megad);
+		else
+			md_load(megad);
+	}
+	if (applyGenie) {
+		unsigned int errors = 0;
+		unsigned int applied = 0;
+		unsigned int reverted = 0;
+		megad.patch(genieCode.c_str(), &errors, &applied, &reverted);
+		if (errors != 0)
+			post_status(B_TRANSLATE("Invalid code."));
+		else if (reverted != 0)
+			post_status(B_TRANSLATE("Reverted."));
+		else if (applied != 0)
+			post_status(B_TRANSLATE("Applied."));
+		else
+			post_status(B_TRANSLATE("Aborted."));
 	}
 
 	for (int i = 0; i < 2; i++) {
@@ -364,7 +460,7 @@ void pd_clear_message()
 
 void pd_show_carthead(md &megad)
 {
-	pd_message("Cartridge: %s", megad.romname);
+	pd_message(B_TRANSLATE("Cartridge: %s"), megad.romname);
 }
 
 void pd_quit()

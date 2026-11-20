@@ -1,5 +1,7 @@
 #include "DGenApp.h"
 
+#include "DGenLocale.h"
+
 #include <Alert.h>
 #include <Entry.h>
 #include <File.h>
@@ -47,12 +49,12 @@ void DGenApp::RefsReceived(BMessage *message)
 
 void DGenApp::AboutRequested()
 {
-	BAlert *alert = new BAlert("About DGen",
-		"DGen " VERSION "\n"
-		"Native Haiku front end skeleton.\n"
-		"Original DGen for BeOS by Dave.\n"
-		"SDL port by Joe Groff and Phil K. Hornung.",
-		"OK");
+	BAlert *alert = new BAlert(B_TRANSLATE("About DGen"),
+		B_TRANSLATE("DGen " VERSION "\n"
+			"Native Haiku front end.\n"
+			"Original DGen for BeOS by Dave.\n"
+			"SDL port by Joe Groff and Phil K. Hornung."),
+		B_TRANSLATE("OK"));
 	alert->Go();
 }
 

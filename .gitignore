@@ -31,3 +31,4 @@ Makefile.in
 /star/star
 /star/starcpu.asm
 /cyclone/Cyclone.s
+*.hpkg

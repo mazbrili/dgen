@@ -1,0 +1,7 @@
+DGen is a Sega Mega Drive emulator with a native Haiku interface.
+It opens Genesis and Mega Drive ROM images, supports gamepads, save states,
+Game Genie codes, scaling, full screen mode and recent files.
+
+The native front end is built from the haiku/ directory. Assembly CPU cores
+are disabled in the Haiku package because they use 32-bit ABI instructions
+that fault on x86_64.

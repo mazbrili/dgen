@@ -21,6 +21,8 @@ enum {
 	MSG_CONFIGURE_INPUT = 'dgci',
 	MSG_CALIBRATE = 'dgca',
 	MSG_GAME_GENIE = 'dgge',
+	MSG_GAME_GENIE_APPLY = 'dgga',
+	MSG_GENIE_CLOSED = 'dggc',
 	MSG_SAVE_STATE = 'dgvs',
 	MSG_LOAD_STATE = 'dgld',
 	MSG_ABOUT = 'dgab',
