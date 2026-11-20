@@ -20,6 +20,7 @@
 DGenWindow::DGenWindow()
 	: BWindow(BRect(0, 0, 655, 489), "DGen", B_TITLED_WINDOW,
 		B_ASYNCHRONOUS_CONTROLS),
+	  fOpenPanel(NULL),
 	  fMenuBar(NULL),
 	  fRecentMenu(NULL),
 	  fView(NULL),
@@ -65,6 +66,11 @@ DGenWindow::DGenWindow()
 	ApplyScale(fScale);
 	fLoadingSettings = false;
 	dgen_haiku_attach_window(this);
+}
+
+DGenWindow::~DGenWindow()
+{
+	delete fOpenPanel;
 }
 
 void DGenWindow::FrameMoved(BPoint)
@@ -299,11 +305,12 @@ void DGenWindow::SaveSettings() const
 
 void DGenWindow::ShowOpenPanel()
 {
-	BFilePanel *panel = new BFilePanel(B_OPEN_PANEL,
-		new BMessenger(this), NULL, 0, false,
-		new BMessage(MSG_FILE_SELECTED));
-	panel->SetTarget(this);
-	panel->Show();
+	if (fOpenPanel == NULL) {
+		BMessenger target(this);
+		fOpenPanel = new BFilePanel(B_OPEN_PANEL, &target, NULL, 0, false,
+			new BMessage(MSG_FILE_SELECTED));
+	}
+	fOpenPanel->Show();
 }
 
 void DGenWindow::MessageReceived(BMessage *message)
@@ -334,6 +341,8 @@ void DGenWindow::MessageReceived(BMessage *message)
 		BuildRecentMenu();
 		break;
 	case MSG_FILE_SELECTED: {
+		if (fOpenPanel != NULL)
+			fOpenPanel->Hide();
 		entry_ref ref;
 		if (message->FindRef("refs", &ref) == B_OK) {
 			BEntry entry(&ref);

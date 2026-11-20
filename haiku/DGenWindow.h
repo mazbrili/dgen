@@ -3,6 +3,7 @@
 
 #include <Window.h>
 
+class BFilePanel;
 class BMenu;
 class BMenuItem;
 class BMenuBar;
@@ -13,6 +14,7 @@ class DGenView;
 class DGenWindow : public BWindow {
 public:
 	DGenWindow();
+	virtual ~DGenWindow();
 	virtual void FrameMoved(BPoint newPosition);
 	virtual void FrameResized(float newWidth, float newHeight);
 	virtual void MessageReceived(BMessage *message);
@@ -28,6 +30,7 @@ private:
 	void ShowOpenPanel();
 	void ToggleFullScreen();
 
+	BFilePanel *fOpenPanel;
 	BMenuBar *fMenuBar;
 	BMenu *fRecentMenu;
 	DGenView *fView;
