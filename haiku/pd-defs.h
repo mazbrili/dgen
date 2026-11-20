@@ -1,0 +1,61 @@
+#ifndef __HAIKU_PD_DEFS_H__
+#define __HAIKU_PD_DEFS_H__
+
+#include <InterfaceDefs.h>
+
+#define PDK_ESCAPE B_ESCAPE
+#define PDK_BACKSPACE B_BACKSPACE
+#define PDK_TAB B_TAB
+#define PDK_RETURN B_RETURN
+#define PDK_KP_MULTIPLY 0x100
+#define PDK_SPACE B_SPACE
+#define PDK_F1 B_F1_KEY
+#define PDK_F2 B_F2_KEY
+#define PDK_F3 B_F3_KEY
+#define PDK_F4 B_F4_KEY
+#define PDK_F5 B_F5_KEY
+#define PDK_F6 B_F6_KEY
+#define PDK_F7 B_F7_KEY
+#define PDK_F8 B_F8_KEY
+#define PDK_F9 B_F9_KEY
+#define PDK_F10 B_F10_KEY
+#define PDK_KP7 0x107
+#define PDK_KP8 0x108
+#define PDK_KP9 0x109
+#define PDK_KP_MINUS 0x10a
+#define PDK_KP4 0x104
+#define PDK_KP5 0x105
+#define PDK_KP6 0x106
+#define PDK_KP_PLUS 0x10b
+#define PDK_KP1 0x101
+#define PDK_KP2 0x102
+#define PDK_KP3 0x103
+#define PDK_KP0 0x100
+#define PDK_KP_PERIOD 0x10c
+#define PDK_F11 B_F11_KEY
+#define PDK_F12 B_F12_KEY
+#define PDK_KP_ENTER 0x10d
+#define PDK_KP_DIVIDE 0x10e
+#define PDK_HOME B_HOME
+#define PDK_UP B_UP_ARROW
+#define PDK_PAGEUP B_PAGE_UP
+#define PDK_LEFT B_LEFT_ARROW
+#define PDK_RIGHT B_RIGHT_ARROW
+#define PDK_END B_END
+#define PDK_DOWN B_DOWN_ARROW
+#define PDK_PAGEDOWN B_PAGE_DOWN
+#define PDK_INSERT B_INSERT
+#define PDK_DELETE B_DELETE
+#define PDK_NUMLOCK B_NUM_LOCK_KEY
+#define PDK_CAPSLOCK B_CAPS_LOCK_KEY
+#define PDK_SCROLLOCK B_SCROLL_KEY
+#define PDK_LSHIFT B_LEFT_SHIFT_KEY
+#define PDK_RSHIFT B_RIGHT_SHIFT_KEY
+#define PDK_LCTRL B_LEFT_CONTROL_KEY
+#define PDK_RCTRL B_RIGHT_CONTROL_KEY
+#define PDK_LALT B_LEFT_OPTION_KEY
+#define PDK_RALT B_RIGHT_OPTION_KEY
+#define PDK_LMETA B_LEFT_COMMAND_KEY
+#define PDK_RMETA B_RIGHT_COMMAND_KEY
+
+#endif

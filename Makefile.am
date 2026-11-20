@@ -4,13 +4,20 @@ ACLOCAL_AMFLAGS = -I m4
 
 include $(top_srcdir)/Makefile.asm.am
 
-DIST_SUBDIRS = musa mz80 sdl star cyclone doc
+DIST_SUBDIRS = musa mz80 sdl star cyclone doc haiku
 
-# SDL
+AM_CPPFLAGS = -I$(top_srcdir)
+if WITH_HAIKU
+SUBDIRS = haiku
+AM_CPPFLAGS += -I$(top_srcdir)/haiku $(HAIKU_CPPFLAGS)
+dgen_DEPENDENCIES = haiku/libpd.a
+dgen_LDADD = haiku/libpd.a
+else
 SUBDIRS = sdl
-AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/sdl
+AM_CPPFLAGS += -I$(top_srcdir)/sdl
 dgen_DEPENDENCIES = sdl/libpd.a
 dgen_LDADD = sdl/libpd.a
+endif
 
 # Musashi
 if WITH_MUSA

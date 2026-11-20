@@ -1,9 +1,12 @@
+#include "md.h"
+
 #ifdef WITH_JOYSTICK
+
+#ifdef HAVE_SDL_H
 
 #include <stddef.h>
 #include <SDL.h>
 #include <SDL_joystick.h>
-#include "md.h"
 
 static SDL_Joystick *(*handles)[];
 static unsigned int handles_n;
@@ -80,7 +83,19 @@ void md::deinit_joysticks()
 	SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
 }
 
-#else // WITH_JOYSTICK
+#else // !HAVE_SDL_H
+
+void md::init_joysticks()
+{
+}
+
+void md::deinit_joysticks()
+{
+}
+
+#endif // HAVE_SDL_H
+
+#else // !WITH_JOYSTICK
 
 // Avoid empty translation unit.
 typedef int md_phil;

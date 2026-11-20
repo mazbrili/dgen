@@ -114,14 +114,72 @@ extension isn't known])]
 dnl Libraries used by dgen_tobin.
 TOBIN_LIBS="${LIBS} ${TOBIN_LIBS}"
 
-dnl Check for SDL libs.
-AM_PATH_SDL([1.2.0], [], [AC_MSG_ERROR([SDL version >= 1.2.0 not found.])])
-CFLAGS="$CFLAGS $SDL_CFLAGS"
-CPPFLAGS="$CPPFLAGS $SDL_CFLAGS"
-LIBS="$LIBS $SDL_LIBS"
+dnl Front end selection.
+AC_ARG_ENABLE(
+	[haiku],
+	[AS_HELP_STRING([--enable-haiku], [build the native Haiku front end])],
+	[USE_HAIKU=$enableval],
+	[USE_HAIKU=no]
+)
 
-dnl Check for the SDL_WM_ToggleFullScreen function.
-AC_CHECK_FUNCS([SDL_WM_ToggleFullScreen])
+HAIKU_CPPFLAGS=
+HAIKU_LIBS=
+AS_IF(
+	[test "x$USE_HAIKU" = xyes],
+	[
+		AC_ARG_WITH(
+			[haiku-root],
+			[AS_HELP_STRING([--with-haiku-root=DIR], [Haiku/Hokku headers prefix])],
+			[HAIKU_ROOT=$withval],
+			[HAIKU_ROOT=]
+		)
+		AC_ARG_WITH(
+			[haiku-libs],
+			[AS_HELP_STRING([--with-haiku-libs=LIBS], [libraries for the Haiku front end])],
+			[HAIKU_LIBS=$withval],
+			[HAIKU_LIBS="-lbe -ltracker -ltranslation -llocalestub"]
+		)
+		AS_IF(
+			[test -n "$HAIKU_ROOT"],
+			[
+				for haiku_dir in \
+					headers headers/os headers/os/app headers/os/interface \
+					headers/os/storage headers/os/support headers/os/kernel \
+					headers/private/app headers/private/interface \
+					headers/private/storage headers/private/support \
+					headers/libs/wayland/stubs
+				do
+					AS_IF(
+						[test -d "$HAIKU_ROOT/$haiku_dir"],
+						[HAIKU_CPPFLAGS="$HAIKU_CPPFLAGS -I$HAIKU_ROOT/$haiku_dir"]
+					)
+				done
+			]
+		)
+		CPPFLAGS="$CPPFLAGS $HAIKU_CPPFLAGS"
+		LIBS="$LIBS $HAIKU_LIBS"
+		AC_LANG_PUSH([C++])
+		AC_CHECK_HEADERS(
+			[Application.h InterfaceDefs.h FilePanel.h],
+			[],
+			[AC_MSG_ERROR([Haiku API headers not found; use --with-haiku-root=DIR])]
+		)
+		AC_LANG_POP([C++])
+	],
+	[
+		AC_MSG_NOTICE([using the SDL front end])
+
+		dnl Check for SDL libs.
+		AC_CHECK_HEADERS([SDL.h])
+		AM_PATH_SDL([1.2.0], [], [AC_MSG_ERROR([SDL version >= 1.2.0 not found.])])
+		CFLAGS="$CFLAGS $SDL_CFLAGS"
+		CPPFLAGS="$CPPFLAGS $SDL_CFLAGS"
+		LIBS="$LIBS $SDL_LIBS"
+
+		dnl Check for the SDL_WM_ToggleFullScreen function.
+		AC_CHECK_FUNCS([SDL_WM_ToggleFullScreen])
+	]
+)
 
 dnl Check for ftello().
 AC_CHECK_FUNCS([ftello])
@@ -743,6 +801,8 @@ AM_CONDITIONAL([WITH_X86_MMX], [test "x$USE_X86_MMX" = xyes])
 AM_CONDITIONAL([WITH_X86_CTV], [test "x$USE_X86_CTV" = xyes])
 AM_CONDITIONAL([WITH_X86_TILES], [test "x$USE_X86_TILES" = xyes])
 AM_CONDITIONAL([WITH_DOXYGEN], [test "x$WITH_DOXYGEN" = xyes])
+AM_CONDITIONAL([WITH_HAIKU], [test "x$USE_HAIKU" = xyes])
+AM_CONDITIONAL([WITH_SDL], [test "x$USE_HAIKU" = xno])
 dnl AM_COND_IF([WITH_DOXYGEN], [AC_CONFIG_FILES([doc/Doxyfile])])
 
 AC_SUBST(CC_FOR_BUILD)
@@ -755,6 +815,8 @@ AC_SUBST(OBJEXT_FOR_BUILD)
 AC_SUBST(EXEEXT_FOR_BUILD)
 AC_SUBST(NASM)
 AC_SUBST(NASM_FORMAT)
+AC_SUBST(HAIKU_CPPFLAGS)
+AC_SUBST(HAIKU_LIBS)
 AC_SUBST(DGEN_LIBS)
 
 dnl The following shuts up automake when overriding *FLAGS macros.
@@ -776,12 +838,14 @@ AC_OUTPUT(
 	[cyclone/Makefile]
 	[mz80/Makefile]
 	[sdl/Makefile]
+	[haiku/Makefile]
 	[doc/Makefile]
 )
 
 AC_MSG_NOTICE([
 
 Front-end
+  Native Haiku: $USE_HAIKU
   OpenGL: $USE_OPENGL
   Joystick: $USE_JOYSTICK
   Multi-threading: $USE_THREADS

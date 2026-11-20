@@ -8,7 +8,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef HAVE_SDL_H
 #include <SDL.h>
+#endif
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <errno.h>
