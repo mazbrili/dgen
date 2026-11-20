@@ -144,7 +144,8 @@ AS_IF(
 			[
 				for haiku_dir in \
 					headers headers/os headers/os/app headers/os/interface \
-					headers/os/storage headers/os/support headers/os/kernel \
+					headers/os/media headers/os/storage headers/os/support \
+					headers/os/kernel \
 					headers/private/app headers/private/interface \
 					headers/private/storage headers/private/support \
 					headers/libs/wayland/stubs
@@ -160,7 +161,7 @@ AS_IF(
 		LIBS="$LIBS $HAIKU_LIBS"
 		AC_LANG_PUSH([C++])
 		AC_CHECK_HEADERS(
-			[Application.h InterfaceDefs.h FilePanel.h],
+			[Application.h InterfaceDefs.h FilePanel.h SoundPlayer.h],
 			[],
 			[AC_MSG_ERROR([Haiku API headers not found; use --with-haiku-root=DIR])]
 		)

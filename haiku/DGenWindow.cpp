@@ -9,6 +9,7 @@
 #include <Message.h>
 #include <Messenger.h>
 #include <Path.h>
+#include <Screen.h>
 #include <StringView.h>
 
 #include "DGenApp.h"
@@ -20,10 +21,35 @@ DGenWindow::DGenWindow()
 	: BWindow(BRect(0, 0, 655, 489), "DGen", B_TITLED_WINDOW,
 		B_ASYNCHRONOUS_CONTROLS),
 	  fMenuBar(NULL),
+	  fRecentMenu(NULL),
 	  fView(NULL),
 	  fStatus(NULL),
-	  fPaused(false)
+	  fFullScreenItem(NULL),
+	  fStatusItem(NULL),
+	  fScaleItems{NULL, NULL, NULL},
+	  fPaused(false),
+	  fFullScreen(false),
+	  fShowStatus(true),
+	  fLoadingSettings(true),
+	  fScale(2)
 {
+	bool restoredFrame = false;
+	BMessage settings;
+	if (dgen_app_instance != NULL &&
+		dgen_app_instance->LoadSettings(settings) == B_OK) {
+		BRect frame;
+		if (settings.FindRect("frame", &frame) == B_OK) {
+			MoveTo(frame.LeftTop());
+			ResizeTo(frame.Width(), frame.Height());
+			restoredFrame = true;
+		}
+		if (settings.HasInt32("scale"))
+			fScale = settings.FindInt32("scale");
+		if (settings.HasBool("show_status"))
+			fShowStatus = settings.FindBool("show_status");
+	}
+
+	fNormalFrame = Frame();
 	BuildMenus();
 	AddChild(fMenuBar);
 
@@ -34,8 +60,27 @@ DGenWindow::DGenWindow()
 	AddChild(fStatus);
 
 	SetSizeLimits(336, 2048, 240, 2048);
-	CenterOnScreen();
+	if (!restoredFrame)
+		CenterOnScreen();
+	ApplyScale(fScale);
+	fLoadingSettings = false;
 	dgen_haiku_attach_window(this);
+}
+
+void DGenWindow::FrameMoved(BPoint)
+{
+	if (fLoadingSettings || fFullScreen)
+		return;
+	fNormalFrame = Frame();
+	SaveSettings();
+}
+
+void DGenWindow::FrameResized(float, float)
+{
+	if (fLoadingSettings || fFullScreen)
+		return;
+	fNormalFrame = Frame();
+	SaveSettings();
 }
 
 void DGenWindow::BuildMenus()
@@ -54,7 +99,9 @@ void DGenWindow::BuildMenus()
 	menu = new BMenu("File");
 	menu->AddItem(new BMenuItem("Open ROM…", new BMessage(MSG_OPEN_ROM), 'O',
 		B_COMMAND_KEY));
-	menu->AddItem(new BMenuItem("Open recent", new BMessage(MSG_OPEN_RECENT)));
+	fRecentMenu = new BMenu("Open recent");
+	menu->AddItem(fRecentMenu);
+	BuildRecentMenu();
 	menu->AddSeparatorItem();
 	menu->AddItem(new BMenuItem("Close cartridge",
 		new BMessage(MSG_CLOSE_CARTRIDGE), 'W', B_COMMAND_KEY));
@@ -68,15 +115,19 @@ void DGenWindow::BuildMenus()
 	fMenuBar->AddItem(menu);
 
 	menu = new BMenu("View");
-	menu->AddItem(new BMenuItem("Full screen",
-		new BMessage(MSG_TOGGLE_FULLSCREEN), 'F'));
+	fFullScreenItem = new BMenuItem("Full screen",
+		new BMessage(MSG_TOGGLE_FULLSCREEN), 'F');
+	menu->AddItem(fFullScreenItem);
 	menu->AddSeparatorItem();
-	menu->AddItem(new BMenuItem("Scale 1×", new BMessage(MSG_SCALE_1X)));
-	menu->AddItem(new BMenuItem("Scale 2×", new BMessage(MSG_SCALE_2X)));
-	menu->AddItem(new BMenuItem("Scale 3×", new BMessage(MSG_SCALE_3X)));
+	for (int i = 0; i < 3; i++) {
+		BMessage *message = new BMessage(MSG_SCALE_1X + i);
+		fScaleItems[i] = new BMenuItem("Scale 1×", message);
+		menu->AddItem(fScaleItems[i]);
+	}
 	menu->AddSeparatorItem();
-	menu->AddItem(new BMenuItem("Show status",
-		new BMessage(MSG_TOGGLE_STATUS)));
+	fStatusItem = new BMenuItem("Show status",
+		new BMessage(MSG_TOGGLE_STATUS));
+	menu->AddItem(fStatusItem);
 	fMenuBar->AddItem(menu);
 
 	menu = new BMenu("Input");
@@ -101,6 +152,151 @@ void DGenWindow::BuildMenus()
 	fMenuBar->AddItem(menu);
 }
 
+void DGenWindow::BuildRecentMenu()
+{
+	if (fRecentMenu == NULL)
+		return;
+
+	BMenuItem *item = NULL;
+	while ((item = fRecentMenu->ItemAt(0)) != NULL) {
+		fRecentMenu->RemoveItem(item);
+		delete item;
+	}
+
+	const BMessage &recent = dgen_app_instance != NULL
+		? dgen_app_instance->RecentFiles() : BMessage();
+	int32 count = recent.CountNames(B_STRING_TYPE);
+	if (count == 0) {
+		item = new BMenuItem("No recent files", NULL);
+		item->SetEnabled(false);
+		fRecentMenu->AddItem(item);
+		return;
+	}
+
+	for (int32 i = 0; i < count && i < 8; i++) {
+		const char *path = recent.FindString("path", i);
+		if (path == NULL)
+			continue;
+		BMessage *message = new BMessage(MSG_OPEN_RECENT);
+		message->AddString("path", path);
+		fRecentMenu->AddItem(new BMenuItem(path, message));
+	}
+}
+
+void DGenWindow::LayoutChildren()
+{
+	BRect frame = Frame();
+	float width = frame.Width();
+	float height = frame.Height();
+
+	if (fFullScreen) {
+		if (fMenuBar != NULL)
+			fMenuBar->Hide();
+		if (fStatus != NULL)
+			fStatus->Hide();
+		if (fView != NULL) {
+			fView->MoveTo(0, 0);
+			fView->ResizeTo(width, height);
+		}
+		return;
+	}
+
+	if (fMenuBar != NULL) {
+		fMenuBar->MoveTo(0, 0);
+		fMenuBar->ResizeTo(width, 19);
+		fMenuBar->Show();
+	}
+	if (fView != NULL) {
+		fView->MoveTo(0, 21);
+		fView->ResizeTo(width, height - 23);
+	}
+	if (fStatus != NULL) {
+		fStatus->MoveTo(0, height - 20);
+		fStatus->ResizeTo(width, 11);
+		if (fShowStatus)
+			fStatus->Show();
+		else
+			fStatus->Hide();
+	}
+}
+
+void DGenWindow::ApplyScale(int scale)
+{
+	if (scale < 1)
+		scale = 1;
+	if (scale > 3)
+		scale = 3;
+	fScale = scale;
+
+	if (!fFullScreen) {
+		ResizeTo(320 * scale + 15, 224 * scale + 41);
+		fNormalFrame = Frame();
+	}
+	LayoutChildren();
+
+	for (int i = 0; i < 3; i++) {
+		if (fScaleItems[i] != NULL) {
+			fScaleItems[i]->SetMarked(i + 1 == fScale);
+			switch (i) {
+			case 0:
+				fScaleItems[i]->SetLabel("Scale 1×");
+				break;
+			case 1:
+				fScaleItems[i]->SetLabel("Scale 2×");
+				break;
+			case 2:
+				fScaleItems[i]->SetLabel("Scale 3×");
+				break;
+			}
+		}
+	}
+	if (fFullScreenItem != NULL)
+		fFullScreenItem->SetMarked(fFullScreen);
+	if (fStatusItem != NULL)
+		fStatusItem->SetMarked(fShowStatus);
+
+	SaveSettings();
+}
+
+void DGenWindow::ToggleFullScreen()
+{
+	BScreen screen;
+	if (!screen.IsValid())
+		return;
+
+	if (fFullScreen) {
+		fFullScreen = false;
+		MoveTo(fNormalFrame.LeftTop());
+		ResizeTo(fNormalFrame.Width(), fNormalFrame.Height());
+	} else {
+		fNormalFrame = Frame();
+		fFullScreen = true;
+		BRect frame = screen.Frame();
+		MoveTo(frame.LeftTop());
+		ResizeTo(frame.Width(), frame.Height());
+	}
+	LayoutChildren();
+	if (fFullScreenItem != NULL)
+		fFullScreenItem->SetMarked(fFullScreen);
+	SaveSettings();
+}
+
+void DGenWindow::SaveSettings() const
+{
+	BMessage settings;
+	if (dgen_app_instance == NULL)
+		return;
+	dgen_app_instance->LoadSettings(settings);
+
+	settings.RemoveName("frame");
+	settings.RemoveName("scale");
+	settings.RemoveName("show_status");
+	settings.AddRect("frame", fFullScreen ? fNormalFrame : Frame());
+	settings.AddInt32("scale", fScale);
+	settings.AddBool("show_status", fShowStatus);
+	dgen_app_instance->SaveSettings(settings);
+}
+
 void DGenWindow::ShowOpenPanel()
 {
 	BFilePanel *panel = new BFilePanel(B_OPEN_PANEL,
@@ -118,14 +314,24 @@ void DGenWindow::MessageReceived(BMessage *message)
 			fView->Invalidate();
 		break;
 	case MSG_STATUS_TEXT: {
-		const char *text = NULL;
-		if (message->FindString("text", &text) == B_OK && fStatus != NULL)
+		const char *text = message->FindString("text");
+		if (text != NULL && fStatus != NULL)
 			fStatus->SetText(text);
 		break;
 	}
 	case MSG_OPEN_ROM:
-	case MSG_OPEN_RECENT:
 		ShowOpenPanel();
+		break;
+	case MSG_OPEN_RECENT: {
+		const char *path = message->FindString("path");
+		if (path != NULL)
+			dgen_haiku_open_rom(path);
+		else
+			ShowOpenPanel();
+		break;
+	}
+	case MSG_REBUILD_RECENT:
+		BuildRecentMenu();
 		break;
 	case MSG_FILE_SELECTED: {
 		entry_ref ref;
@@ -154,24 +360,20 @@ void DGenWindow::MessageReceived(BMessage *message)
 		dgen_haiku_request_reset(true);
 		break;
 	case MSG_TOGGLE_FULLSCREEN:
-		dgen_haiku_toggle_fullscreen();
+		ToggleFullScreen();
+		break;
+	case MSG_SET_SCALE:
+		ApplyScale(message->FindInt32("scale"));
 		break;
 	case MSG_SCALE_1X:
-		dgen_haiku_set_scale(1);
-		break;
 	case MSG_SCALE_2X:
-		dgen_haiku_set_scale(2);
-		break;
 	case MSG_SCALE_3X:
-		dgen_haiku_set_scale(3);
+		ApplyScale(message->what - MSG_SCALE_1X + 1);
 		break;
 	case MSG_TOGGLE_STATUS:
-		if (fStatus != NULL) {
-			if (fStatus->IsHidden())
-				fStatus->Show();
-			else
-				fStatus->Hide();
-		}
+		fShowStatus = !fShowStatus;
+		LayoutChildren();
+		SaveSettings();
 		break;
 	case MSG_CONFIGURE_INPUT:
 	case MSG_CALIBRATE:
@@ -198,6 +400,7 @@ void DGenWindow::MessageReceived(BMessage *message)
 
 bool DGenWindow::QuitRequested()
 {
+	SaveSettings();
 	dgen_haiku_request_quit();
 	return true;
 }
