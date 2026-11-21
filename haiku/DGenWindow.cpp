@@ -3,6 +3,7 @@
 #include "DGenLocale.h"
 
 #include <Alert.h>
+#include <Bitmap.h>
 #include <Button.h>
 #include <Entry.h>
 #include <FilePanel.h>
@@ -413,6 +414,16 @@ void DGenWindow::MessageReceived(BMessage *message)
 		if (fView != NULL)
 			fView->Invalidate();
 		break;
+	case MSG_SET_FRAME_BITMAP: {
+		BBitmap *bitmap = NULL;
+		BBitmap *oldBitmap = NULL;
+		message->FindPointer("bitmap", (void **)&bitmap);
+		message->FindPointer("old", (void **)&oldBitmap);
+		if (fView != NULL && bitmap != NULL)
+			fView->SetFrameBitmap(bitmap);
+		delete oldBitmap;
+		break;
+	}
 	case MSG_STATUS_TEXT: {
 		const char *text = message->FindString("text");
 		if (text != NULL && fStatus != NULL)

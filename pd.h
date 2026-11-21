@@ -25,6 +25,7 @@ extern unsigned char *mdpal;
 // It should return 1 on successful setup, or 0 if something wrong happened.
 int pd_graphics_init(int want_sound, int want_pal, int hz);
 int pd_graphics_reinit(int want_sound, int want_pal, int hz);
+int pd_run(int (*entry)(void *), void *arg);
 // This updats the palette, if necessary.
 void pd_graphics_palette_update();
 // This updates the screen, with the mdscr bitmap.

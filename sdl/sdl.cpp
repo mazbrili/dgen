@@ -6992,6 +6992,11 @@ void pd_show_carthead(md& megad)
 	}
 }
 
+int pd_run(int (*entry)(void *), void *arg)
+{
+	return entry(arg);
+}
+
 /* Clean up this awful mess :) */
 void pd_quit()
 {

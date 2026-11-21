@@ -22,7 +22,6 @@
 
 #include "DGenApp.h"
 #include "DGenMessages.h"
-#include "DGenView.h"
 #include "DGenWindow.h"
 #include "pd.h"
 #include "rc-vars.h"
@@ -74,15 +73,46 @@ static bool sHasPendingGenie = false;
 
 static md *sMegad = NULL;
 
-static int32 app_thread(void *)
+struct EmulatorThreadData {
+	int (*entry)(void *);
+	void *arg;
+	int result;
+};
+
+static int32 emulator_thread(void *data)
+{
+	EmulatorThreadData *threadData = (EmulatorThreadData *)data;
+	threadData->result = threadData->entry(threadData->arg);
+	dgen_haiku_request_quit();
+	if (sWindow != NULL)
+		sWindow->PostMessage(B_QUIT_REQUESTED);
+	return 0;
+}
+
+int pd_run(int (*entry)(void *), void *arg)
 {
 	sApp = new DGenApp();
 	sWindow = new DGenWindow();
 	sWindow->Show();
 	sWindowReady.store(true);
 	sAppReady.store(true);
+	fprintf(stderr, "dgen: native Haiku UI ready\n");
+
+	EmulatorThreadData data = { entry, arg, 0 };
+	thread_id thread = spawn_thread(emulator_thread, "DGen emulator",
+		B_NORMAL_PRIORITY, &data);
+	if (thread < B_OK) {
+		fprintf(stderr, "dgen: could not start emulator thread: %s\n",
+			strerror((int)thread));
+		sApp->Quit();
+		return 1;
+	}
+	resume_thread(thread);
+	fprintf(stderr, "dgen: emulator thread started\n");
 	sApp->Run();
-	return 0;
+	status_t status = B_OK;
+	wait_for_thread(thread, &status);
+	return data.result;
 }
 
 static void post_status(const char *text)
@@ -100,15 +130,8 @@ unsigned long pd_usecs(void)
 
 int pd_graphics_init(int, int want_pal, int)
 {
-	if (sWindow == NULL) {
-		if (!sAppReady.load()) {
-			thread_id thread = spawn_thread(app_thread, "DGen app",
-				B_NORMAL_PRIORITY, NULL);
-			resume_thread(thread);
-		}
-		while (!sWindowReady.load())
-			snooze(1000);
-	}
+	while (!sWindowReady.load())
+		snooze(1000);
 
 	for (int i = 0; i < 2; i++) {
 		sPad[i].store(0);
@@ -120,7 +143,7 @@ int pd_graphics_init(int, int want_pal, int)
 
 	free(sFrameBuffer);
 	sFrameBuffer = NULL;
-	delete sBitmap;
+	BBitmap *oldBitmap = sBitmap;
 	sBitmap = NULL;
 
 	mdscr.w = sVisibleWidth + 16;
@@ -139,12 +162,16 @@ int pd_graphics_init(int, int want_pal, int)
 		sVisibleHeight - 1), B_RGB32);
 	if (sBitmap->InitCheck() != B_OK) {
 		post_status(B_TRANSLATE("Could not allocate the video bitmap."));
+		delete sBitmap;
+		sBitmap = NULL;
 		return 0;
 	}
 
-	DGenView *view = sWindow->VideoView();
-	if (view != NULL)
-		view->SetFrameBitmap(sBitmap);
+	BMessage message(MSG_SET_FRAME_BITMAP);
+	message.AddPointer("bitmap", sBitmap);
+	message.AddPointer("old", oldBitmap);
+	if (sWindow != NULL)
+		sWindow->PostMessage(&message);
 
 	mdpal = NULL;
 
@@ -237,6 +264,7 @@ int pd_sound_init(long &freq, unsigned int &samples)
 		B_MEDIA_LITTLE_ENDIAN : B_MEDIA_BIG_ENDIAN;
 	format.buffer_size = 0;
 
+	fprintf(stderr, "dgen: creating BSoundPlayer\n");
 	sSoundPlayer = new BSoundPlayer(&format, "DGen", sound_callback);
 	status_t status = sSoundPlayer->InitCheck();
 	if (status == B_OK)

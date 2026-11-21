@@ -3,6 +3,7 @@
 
 enum {
 	MSG_UPDATE_FRAME = 'dguf',
+	MSG_SET_FRAME_BITMAP = 'dgfb',
 	MSG_STATUS_TEXT = 'dgst',
 	MSG_OPEN_ROM = 'dgor',
 	MSG_OPEN_RECENT = 'dgrc',

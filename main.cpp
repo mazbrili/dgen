@@ -79,6 +79,22 @@ static inline void do_demo(md& megad, FILE* demo, enum demo_status* status)
 	}
 }
 
+struct DGenEmulatorState {
+	int argc;
+	char **argv;
+	int optind;
+	int start_slot;
+	char *patches;
+	char *rom;
+	FILE *file;
+	bool first;
+	bool forced_hz;
+	bool forced_pal;
+	enum demo_status demo_status;
+};
+
+static int dgen_emulator_main(void *arg);
+
 // Temporary garbage can string :)
 static char temp[65536] = "";
 
@@ -214,15 +230,10 @@ fail:
 
 int main(int argc, char *argv[])
 {
-  int c = 0, stop = 0, usec = 0, start_slot = -1;
-  unsigned long frames, frames_old, fps;
-  char *patches = NULL, *rom = NULL;
-  unsigned long oldclk, newclk, startclk, fpsclk;
+  int c = 0, start_slot = -1;
+  char *patches = NULL;
   FILE *file = NULL;
   enum demo_status demo_status = DEMO_OFF;
-  unsigned int samples;
-  class md *megad;
-  bool first = true;
   bool forced_hz = false;
   bool forced_pal = false;
 
@@ -429,6 +440,33 @@ int main(int argc, char *argv[])
 		FreeConsole();
 	}
 #endif
+
+  DGenEmulatorState state = {
+    argc, argv, optind, start_slot, patches, NULL, file, true,
+    forced_hz, forced_pal, demo_status
+  };
+  return pd_run(dgen_emulator_main, &state);
+}
+
+static int dgen_emulator_main(void *arg)
+{
+  DGenEmulatorState *state = (DGenEmulatorState *)arg;
+  int argc = state->argc;
+  char **argv = state->argv;
+  int &optind = state->optind;
+  int &start_slot = state->start_slot;
+  char *&patches = state->patches;
+  char *&rom = state->rom;
+  FILE *&file = state->file;
+  bool &first = state->first;
+  bool &forced_hz = state->forced_hz;
+  bool &forced_pal = state->forced_pal;
+  enum demo_status &demo_status = state->demo_status;
+  int stop = 0, usec = 0;
+  unsigned long frames, frames_old, fps;
+  unsigned long oldclk, newclk, startclk, fpsclk;
+  unsigned int samples;
+  class md *megad;
 
   // Initialize the platform-dependent stuff.
   if (!pd_graphics_init(dgen_sound, dgen_pal, dgen_hz))
