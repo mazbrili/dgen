@@ -1,5 +1,5 @@
 DGen is a Sega Mega Drive emulator with a native Haiku interface.
-It opens Genesis and Mega Drive ROM images, supports gamepads, save states,
+It opens Genesis and Mega Drive ROM images, has configurable keyboard controls, save states,
 Game Genie codes, scaling, full screen mode and recent files.
 
 The native front end is built from the haiku/ directory. Assembly CPU cores

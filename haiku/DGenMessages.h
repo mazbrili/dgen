@@ -33,6 +33,7 @@ enum {
 	MSG_SAVE_STATE = 'dgvs',
 	MSG_LOAD_STATE = 'dgld',
 	MSG_ABOUT = 'dgab',
+	MSG_HELP = 'dghl',
 	MSG_SETTINGS = 'dgcf',
 	MSG_QUIT = 'dgqt'
 };

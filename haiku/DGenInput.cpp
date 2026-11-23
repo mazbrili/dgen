@@ -52,6 +52,9 @@ static const char *key_code_label(int32 key)
 		return "PgDn";
 	case B_SPACE_BAR_KEY:
 		return "Space";
+	case B_LEFT_SHIFT_KEY:
+	case B_RIGHT_SHIFT_KEY:
+		return "Shift";
 	default:
 		return NULL;
 	}
@@ -202,6 +205,8 @@ bool dgen_input_key_from_message(const BMessage &message, DGenKey &key)
 	modifiers = message_int32(message, "modifiers");
 	rawKey = message_int32(message, "key");
 	byteValue = message_int32(message, "byteValue");
+	if (rawKey == B_ESCAPE || (bytes != NULL && bytes[0] == 0x1b))
+		return false;
 	if (byteValue == 0 && bytes != NULL && bytes[0] >= 32 && bytes[0] < 127)
 		byteValue = std::tolower((unsigned char)bytes[0]);
 
@@ -221,12 +226,34 @@ bool dgen_input_key_from_message(const BMessage &message, DGenKey &key)
 bool dgen_input_key_matches(const DGenKey &binding, uint32 modifiers,
 	int32 key, const char *bytes)
 {
+	bool shiftKey = key == B_LEFT_SHIFT_KEY || key == B_RIGHT_SHIFT_KEY;
+	if (binding.key == 0 && binding.byteValue == 0)
+		return (binding.modifiers & B_SHIFT_KEY) != 0 && shiftKey;
 	if ((modifiers & B_SHIFT_KEY) != (binding.modifiers & B_SHIFT_KEY))
 		return false;
 	if (binding.key != 0)
 		return key == binding.key;
-	if (binding.byteValue != 0)
-		return bytes != NULL &&
-			std::tolower((unsigned char)bytes[0]) == binding.byteValue;
-	return true;
+	return bytes != NULL && bytes[0] != '\0' &&
+		std::tolower((unsigned char)bytes[0]) == binding.byteValue;
+}
+
+bool dgen_input_keys_equal(const DGenKey &a, const DGenKey &b)
+{
+	return a.modifiers == b.modifiers && a.key == b.key &&
+		a.byteValue == b.byteValue;
+}
+
+void dgen_input_clear_conflicts(DGenInputMap &map, int player, int action)
+{
+	DGenKey empty = { 0, 0, 0 };
+	for (int otherPlayer = 0; otherPlayer < 2; otherPlayer++) {
+		for (int otherAction = 0;
+			otherAction < DGEN_INPUT_ACTION_COUNT; otherAction++) {
+			if (otherPlayer == player && otherAction == action)
+				continue;
+			if (dgen_input_keys_equal(map.keys[otherPlayer][otherAction],
+					map.keys[player][action]))
+				map.keys[otherPlayer][otherAction] = empty;
+		}
+	}
 }

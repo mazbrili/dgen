@@ -293,6 +293,7 @@ public:
 				player >= 0 && player < 2 && action >= 0 &&
 				action < DGEN_INPUT_ACTION_COUNT) {
 				fMap.keys[player][action] = key;
+				dgen_input_clear_conflicts(fMap, player, action);
 				BString label = dgen_input_key_label(key);
 				fButtons[player][action]->SetLabel(label.String());
 			}
@@ -359,6 +360,17 @@ static void open_joystick_preferences()
 	alert->Go();
 }
 
+static void show_help()
+{
+	BAlert *alert = new BAlert(B_TRANSLATE("DGen Help"),
+		B_TRANSLATE("Open a ROM with File → Open ROM…, then use the controls "
+			"configured in Input → Configure controls….\n\n"
+			"Escape quits DGen. Use Emulation → Pause to pause, and Tools → "
+			"Save state or Load state to keep your place."),
+		B_TRANSLATE("OK"));
+	alert->Go();
+}
+
 DGenWindow::DGenWindow()
 	: BWindow(BRect(0, 0, 655, 489), "DGen", B_TITLED_WINDOW,
 		B_ASYNCHRONOUS_CONTROLS),
@@ -371,6 +383,7 @@ DGenWindow::DGenWindow()
 	  fView(NULL),
 	  fStatus(NULL),
 	  fFullScreenItem(NULL),
+	  fPauseItem(NULL),
 	  fStatusItem(NULL),
 	  fScaleItems{NULL, NULL, NULL},
 	  fPaused(false),
@@ -456,6 +469,18 @@ void DGenWindow::FrameResized(float, float)
 	SaveSettings();
 }
 
+void DGenWindow::WindowActivated(bool active)
+{
+	BWindow::WindowActivated(active);
+	if (!active || fView == NULL)
+		return;
+	if ((fGameGenieWindow != NULL && fGameGenieWindow->IsActive()) ||
+		(fSettingsWindow != NULL && fSettingsWindow->IsActive()) ||
+		(fInputWindow != NULL && fInputWindow->IsActive()))
+		return;
+	fView->MakeFocus();
+}
+
 static void add_state_items(BMenu *menu, uint32 what)
 {
 	char label[16];
@@ -492,7 +517,8 @@ void DGenWindow::BuildMenus()
 	fMenuBar->AddItem(menu);
 
 	menu = new BMenu(B_TRANSLATE("Emulation"));
-	menu->AddItem(new BMenuItem(B_TRANSLATE("Pause"), new BMessage(MSG_PAUSE), 'P'));
+	fPauseItem = new BMenuItem(B_TRANSLATE("Pause"), new BMessage(MSG_PAUSE), 'P');
+	menu->AddItem(fPauseItem);
 	menu->AddSeparatorItem();
 	menu->AddItem(new BMenuItem(B_TRANSLATE("Reset"), new BMessage(MSG_RESET), 'R'));
 	menu->AddItem(new BMenuItem(B_TRANSLATE("Hard reset"), new BMessage(MSG_HARD_RESET)));
@@ -505,7 +531,9 @@ void DGenWindow::BuildMenus()
 	menu->AddSeparatorItem();
 	for (int i = 0; i < 3; i++) {
 		BMessage *message = new BMessage(MSG_SCALE_1X + i);
-		fScaleItems[i] = new BMenuItem(B_TRANSLATE("Scale 1×"), message);
+		BString label;
+		label.SetToFormat(B_TRANSLATE("Scale %d×"), i + 1);
+		fScaleItems[i] = new BMenuItem(label.String(), message);
 		menu->AddItem(fScaleItems[i]);
 	}
 	menu->AddSeparatorItem();
@@ -534,7 +562,7 @@ void DGenWindow::BuildMenus()
 	fMenuBar->AddItem(menu);
 
 	menu = new BMenu(B_TRANSLATE("Help"));
-	menu->AddItem(new BMenuItem(B_TRANSLATE("About DGen…"), new BMessage(MSG_ABOUT)));
+	menu->AddItem(new BMenuItem(B_TRANSLATE("DGen Help…"), new BMessage(MSG_HELP)));
 	fMenuBar->AddItem(menu);
 }
 
@@ -755,6 +783,8 @@ void DGenWindow::MessageReceived(BMessage *message)
 		if (fOpenPanel != NULL)
 			fOpenPanel->Hide();
 		open_first_ref(message);
+		if (fView != NULL)
+			fView->MakeFocus();
 		break;
 	case B_REFS_RECEIVED:
 		open_first_ref(message);
@@ -765,6 +795,8 @@ void DGenWindow::MessageReceived(BMessage *message)
 	case MSG_PAUSE:
 		fPaused = !fPaused;
 		dgen_haiku_set_paused(fPaused);
+		if (fPauseItem != NULL)
+			fPauseItem->SetMarked(fPaused);
 		if (fStatus != NULL)
 			fStatus->SetText(fPaused ? B_TRANSLATE("Paused") :
 				B_TRANSLATE("Running"));
@@ -836,6 +868,8 @@ void DGenWindow::MessageReceived(BMessage *message)
 		if (fStatus != NULL)
 			fStatus->SetText(B_TRANSLATE("Controls updated."));
 		SaveSettings();
+		if (close && fView != NULL)
+			fView->MakeFocus();
 		if (close && fInputWindow != NULL)
 			fInputWindow->PostMessage(B_QUIT_REQUESTED);
 		break;
@@ -867,6 +901,9 @@ void DGenWindow::MessageReceived(BMessage *message)
 	case MSG_ABOUT:
 		if (dgen_app_instance != NULL)
 			dgen_app_instance->AboutRequested();
+		break;
+	case MSG_HELP:
+		show_help();
 		break;
 	case MSG_QUIT:
 		dgen_haiku_request_quit();

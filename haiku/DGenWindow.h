@@ -20,6 +20,7 @@ public:
 	virtual ~DGenWindow();
 	virtual void FrameMoved(BPoint newPosition);
 	virtual void FrameResized(float newWidth, float newHeight);
+	virtual void WindowActivated(bool active);
 	virtual void MessageReceived(BMessage *message);
 	virtual bool QuitRequested();
 	DGenView *VideoView() const;
@@ -42,6 +43,7 @@ private:
 	DGenView *fView;
 	BStringView *fStatus;
 	BMenuItem *fFullScreenItem;
+	BMenuItem *fPauseItem;
 	BMenuItem *fStatusItem;
 	BMenuItem *fScaleItems[3];
 	BRect fNormalFrame;

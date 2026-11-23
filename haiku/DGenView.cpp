@@ -34,6 +34,12 @@ void DGenView::Draw(BRect)
 	}
 }
 
+void DGenView::MouseDown(BPoint)
+{
+	if (Window() != NULL)
+		MakeFocus();
+}
+
 void DGenView::MouseMoved(BPoint, uint32 code, const BMessage *dragMessage)
 {
 	bool accepting = dragMessage != NULL && dragMessage->HasRef("refs") &&

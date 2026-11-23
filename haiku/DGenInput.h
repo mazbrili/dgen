@@ -40,5 +40,7 @@ BString dgen_input_key_label(const DGenKey &key);
 bool dgen_input_key_from_message(const BMessage &message, DGenKey &key);
 bool dgen_input_key_matches(const DGenKey &binding, uint32 modifiers,
 	int32 key, const char *bytes);
+bool dgen_input_keys_equal(const DGenKey &a, const DGenKey &b);
+void dgen_input_clear_conflicts(DGenInputMap &map, int player, int action);
 
 #endif

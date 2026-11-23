@@ -14,6 +14,7 @@ class DGenView : public BView {
 public:
 	DGenView(BRect frame, const DGenInputMap *inputMap);
 	virtual void Draw(BRect updateRect);
+	virtual void MouseDown(BPoint where);
 	virtual void KeyDown(BMessage *message);
 	virtual void KeyUp(BMessage *message);
 	virtual void MouseMoved(BPoint where, uint32 code, const BMessage *dragMessage);
