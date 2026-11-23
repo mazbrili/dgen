@@ -57,6 +57,12 @@ static std::atomic<bool> sPaused(false);
 static std::atomic<bool> sReset(false);
 static std::atomic<bool> sHardReset(false);
 static std::atomic<int> sScale(1);
+static std::atomic<bool> sSoundEnabled(true);
+static std::atomic<bool> sPalEnabled(false);
+static std::atomic<int> sHz(60);
+static std::atomic<bool> sSettingsDirty(false);
+static std::atomic<bool> sSoundChanged(false);
+static std::atomic<bool> sVideoChanged(false);
 static std::atomic<uint32_t> sPad[2];
 static std::atomic<uint32_t> sPrevPad[2];
 
@@ -128,10 +134,14 @@ unsigned long pd_usecs(void)
 	return (unsigned long)system_time();
 }
 
-int pd_graphics_init(int, int want_pal, int)
+int pd_graphics_init(int want_sound, int want_pal, int hz)
 {
 	while (!sWindowReady.load())
 		snooze(1000);
+
+	sSoundEnabled.store(want_sound != 0);
+	sPalEnabled.store(want_pal != 0);
+	sHz.store(hz);
 
 	for (int i = 0; i < 2; i++) {
 		sPad[i].store(0);
@@ -382,8 +392,61 @@ void dgen_haiku_request_game_genie(const char *code)
 	sHasPendingGenie = true;
 }
 
+void dgen_haiku_get_emulation_settings(bool &sound, bool &pal, int &hz)
+{
+	sound = sSoundEnabled.load();
+	pal = sPalEnabled.load();
+	hz = sHz.load();
+}
+
+void dgen_haiku_set_emulation_settings(bool sound, bool pal, int hz)
+{
+	if (hz != 50 && hz != 60)
+		hz = pal ? 50 : 60;
+	bool soundChanged = sound != sSoundEnabled.load();
+	bool videoChanged = pal != sPalEnabled.load() || hz != sHz.load();
+	sSoundEnabled.store(sound);
+	sPalEnabled.store(pal);
+	sHz.store(hz);
+	if (soundChanged)
+		sSoundChanged.store(true);
+	if (videoChanged)
+		sVideoChanged.store(true);
+	if (soundChanged || videoChanged)
+		sSettingsDirty.store(true);
+}
+
+static void apply_pending_settings()
+{
+	if (!sSettingsDirty.exchange(false))
+		return;
+
+	dgen_sound = sSoundEnabled.load() ? 1 : 0;
+	dgen_pal = sPalEnabled.load() ? 1 : 0;
+	dgen_hz = sHz.load();
+
+	if (sVideoChanged.exchange(false))
+		pd_graphics_reinit((int)dgen_sound, (int)dgen_pal, (int)dgen_hz);
+
+	if (sSoundChanged.exchange(false)) {
+		if (dgen_sound) {
+			long rate = dgen_soundrate;
+			if (dgen_soundsegs < 0)
+				dgen_soundsegs = 0;
+			unsigned int samples =
+				(unsigned int)(dgen_soundsegs * (rate / dgen_hz));
+			pd_sound_init(rate, samples);
+		} else {
+			pd_sound_deinit();
+		}
+	}
+
+	post_status(B_TRANSLATE("Settings applied."));
+}
+
 int pd_handle_events(md &megad)
 {
+	apply_pending_settings();
 	sMegad = &megad;
 
 	if (sQuit.load())

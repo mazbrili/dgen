@@ -3,6 +3,8 @@
 
 #include <Window.h>
 
+#include "DGenInput.h"
+
 class BFilePanel;
 class BMenu;
 class BMenuItem;
@@ -33,6 +35,8 @@ private:
 
 	BFilePanel *fOpenPanel;
 	BWindow *fGameGenieWindow;
+	BWindow *fSettingsWindow;
+	BWindow *fInputWindow;
 	BMenuBar *fMenuBar;
 	BMenu *fRecentMenu;
 	DGenView *fView;
@@ -46,6 +50,7 @@ private:
 	bool fShowStatus;
 	bool fLoadingSettings;
 	int fScale;
+	DGenInputMap fInputMap;
 };
 
 #endif

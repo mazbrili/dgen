@@ -8,10 +8,11 @@
 #include "md.h"
 #include "pdHaiku.h"
 
-DGenView::DGenView(BRect frame)
+DGenView::DGenView(BRect frame, const DGenInputMap *inputMap)
 	: BView(frame, "DGen video", B_FOLLOW_ALL, B_WILL_DRAW),
 	  fBitmap(NULL),
-	  fPad(MD_PAD_UNTOUCHED),
+	  fInputMap(inputMap),
+	  fPad{ MD_PAD_UNTOUCHED, MD_PAD_UNTOUCHED },
 	  fDropTarget(false)
 {
 	SetViewColor(ui_color(B_PANEL_BACKGROUND_COLOR));
@@ -61,152 +62,77 @@ void DGenView::SetFrameBitmap(BBitmap *bitmap)
 	Invalidate();
 }
 
+void DGenView::SetInputMap(const DGenInputMap *inputMap)
+{
+	fInputMap = inputMap;
+}
+
 void DGenView::KeyDown(BMessage *message)
 {
 	int32 key = 0;
 	int32 modifiers = 0;
 	const char *bytes = NULL;
-	uint32_t mask = 0;
 
 	message->FindInt32("key", &key);
 	message->FindInt32("modifiers", &modifiers);
 	message->FindString("bytes", &bytes);
 
-	switch (key) {
-	case B_UP_ARROW:
-		mask = MD_UP_MASK;
-		break;
-	case B_DOWN_ARROW:
-		mask = MD_DOWN_MASK;
-		break;
-	case B_LEFT_ARROW:
-		mask = MD_LEFT_MASK;
-		break;
-	case B_RIGHT_ARROW:
-		mask = MD_RIGHT_MASK;
-		break;
-	case B_RETURN:
-		mask = MD_START_MASK;
-		break;
-	case B_ESCAPE:
-		if (bytes != NULL && bytes[0] == 0x1b)
-			dgen_haiku_request_quit();
+	if (key == B_ESCAPE && bytes != NULL && bytes[0] == 0x1b) {
+		dgen_haiku_request_quit();
 		return;
-	default:
-		break;
 	}
 
-	if (mask == 0 && bytes != NULL) {
-		switch (bytes[0]) {
-		case 'w':
-		case 'W':
-			mask = MD_UP_MASK;
-			break;
-		case 's':
-		case 'S':
-			mask = MD_DOWN_MASK;
-			break;
-		case 'a':
-		case 'A':
-			mask = MD_LEFT_MASK;
-			break;
-		case 'd':
-		case 'D':
-			mask = MD_RIGHT_MASK;
-			break;
-		case 'z':
-		case 'Z':
-			mask = MD_A_MASK;
-			break;
-		case 'x':
-		case 'X':
-			mask = MD_B_MASK;
-			break;
-		case 'c':
-		case 'C':
-			mask = MD_C_MASK;
-			break;
-		default:
-			break;
+	DGenInputMap defaults;
+	const DGenInputMap *map = fInputMap;
+	if (map == NULL) {
+		dgen_input_defaults(defaults);
+		map = &defaults;
+	}
+
+	bool changed = false;
+	for (int player = 0; player < 2; player++) {
+		for (int action = 0; action < DGEN_INPUT_ACTION_COUNT; action++) {
+			if (!dgen_input_key_matches(map->keys[player][action],
+					(uint32)modifiers, key, bytes))
+				continue;
+			uint32_t mask = dgen_input_action_mask(action);
+			if (mask == 0)
+				continue;
+			fPad[player] |= mask;
+			dgen_haiku_set_pad(player, fPad[player]);
+			changed = true;
 		}
 	}
-
-	if (mask == 0 && (modifiers & B_SHIFT_KEY) != 0)
-		mask = MD_MODE_MASK;
-	if (mask == 0)
-		return;
-
-	fPad |= mask;
-	dgen_haiku_set_pad(0, fPad);
+	(void)changed;
 }
 
 void DGenView::KeyUp(BMessage *message)
 {
 	int32 key = 0;
+	int32 modifiers = 0;
 	const char *bytes = NULL;
-	uint32_t mask = 0;
 
 	message->FindInt32("key", &key);
+	message->FindInt32("modifiers", &modifiers);
 	message->FindString("bytes", &bytes);
 
-	switch (key) {
-	case B_UP_ARROW:
-		mask = MD_UP_MASK;
-		break;
-	case B_DOWN_ARROW:
-		mask = MD_DOWN_MASK;
-		break;
-	case B_LEFT_ARROW:
-		mask = MD_LEFT_MASK;
-		break;
-	case B_RIGHT_ARROW:
-		mask = MD_RIGHT_MASK;
-		break;
-	case B_RETURN:
-		mask = MD_START_MASK;
-		break;
-	default:
-		break;
+	DGenInputMap defaults;
+	const DGenInputMap *map = fInputMap;
+	if (map == NULL) {
+		dgen_input_defaults(defaults);
+		map = &defaults;
 	}
 
-	if (mask == 0 && bytes != NULL) {
-		switch (bytes[0]) {
-		case 'w':
-		case 'W':
-			mask = MD_UP_MASK;
-			break;
-		case 's':
-		case 'S':
-			mask = MD_DOWN_MASK;
-			break;
-		case 'a':
-		case 'A':
-			mask = MD_LEFT_MASK;
-			break;
-		case 'd':
-		case 'D':
-			mask = MD_RIGHT_MASK;
-			break;
-		case 'z':
-		case 'Z':
-			mask = MD_A_MASK;
-			break;
-		case 'x':
-		case 'X':
-			mask = MD_B_MASK;
-			break;
-		case 'c':
-		case 'C':
-			mask = MD_C_MASK;
-			break;
-		default:
-			break;
+	for (int player = 0; player < 2; player++) {
+		for (int action = 0; action < DGEN_INPUT_ACTION_COUNT; action++) {
+			if (!dgen_input_key_matches(map->keys[player][action],
+					(uint32)modifiers, key, bytes))
+				continue;
+			uint32_t mask = dgen_input_action_mask(action);
+			if (mask == 0)
+				continue;
+			fPad[player] &= ~mask;
+			dgen_haiku_set_pad(player, fPad[player]);
 		}
 	}
-
-	if (mask == 0)
-		return;
-
-	fPad &= ~mask;
-	dgen_haiku_set_pad(0, fPad);
 }

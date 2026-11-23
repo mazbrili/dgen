@@ -7,6 +7,8 @@ noinst_LIBRARIES = libpd.a
 libpd_a_SOURCES = \
 	DGenApp.cpp \
 	DGenApp.h \
+	DGenInput.cpp \
+	DGenInput.h \
 	DGenLocale.h \
 	DGenMessages.h \
 	DGenView.cpp \

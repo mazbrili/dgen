@@ -5,6 +5,7 @@
 #include <Alert.h>
 #include <Bitmap.h>
 #include <Button.h>
+#include <CheckBox.h>
 #include <Entry.h>
 #include <FilePanel.h>
 #include <Menu.h>
@@ -13,6 +14,8 @@
 #include <Message.h>
 #include <Messenger.h>
 #include <Path.h>
+#include <RadioButton.h>
+#include <Roster.h>
 #include <Screen.h>
 #include <StringView.h>
 #include <TextControl.h>
@@ -24,6 +27,14 @@
 #include "DGenMessages.h"
 #include "DGenView.h"
 #include "pdHaiku.h"
+
+static bool message_bool(const BMessage &message, const char *name,
+	bool defaultValue = false)
+{
+	if (message.HasBool(name))
+		return message.FindBool(name);
+	return defaultValue;
+}
 
 class GameGenieWindow : public BWindow {
 public:
@@ -83,11 +94,278 @@ private:
 	BTextControl *fCode;
 };
 
+class SettingsWindow : public BWindow {
+public:
+	SettingsWindow(BMessenger owner, bool sound, bool pal)
+		: BWindow(BRect(0, 0, 304, 156), B_TRANSLATE("DGen settings"),
+			B_TITLED_WINDOW, B_NOT_RESIZABLE | B_NOT_ZOOMABLE),
+		  fOwner(owner)
+	{
+		BView *view = new BView(Bounds(), "settingsView", B_FOLLOW_ALL,
+			B_WILL_DRAW);
+		view->SetViewColor(ui_color(B_PANEL_BACKGROUND_COLOR));
+		AddChild(view);
+
+		fSound = new BCheckBox(BRect(12, 12, 292, 34), "sound",
+			B_TRANSLATE("Enable sound"), new BMessage('stts'));
+		fSound->SetValue(sound ? B_CONTROL_ON : B_CONTROL_OFF);
+		fSound->SetTarget(this);
+		view->AddChild(fSound);
+
+		fNtsc = new BRadioButton(BRect(28, 46, 140, 68), "ntsc",
+			B_TRANSLATE("NTSC, 60 Hz"), new BMessage('stts'));
+		fNtsc->SetValue(pal ? B_CONTROL_OFF : B_CONTROL_ON);
+		fNtsc->SetTarget(this);
+		view->AddChild(fNtsc);
+
+		fPal = new BRadioButton(BRect(160, 46, 292, 68), "pal",
+			B_TRANSLATE("PAL, 50 Hz"), new BMessage('stts'));
+		fPal->SetValue(pal ? B_CONTROL_ON : B_CONTROL_OFF);
+		fPal->SetTarget(this);
+		view->AddChild(fPal);
+
+		BMessage *applyMessage = new BMessage(MSG_SETTINGS_APPLY);
+		applyMessage->AddBool("close", false);
+		BButton *apply = new BButton(BRect(175, 116, 292, 144), "apply",
+			B_TRANSLATE("Apply"), applyMessage);
+		apply->SetTarget(this);
+		apply->MakeDefault(true);
+		view->AddChild(apply);
+
+		BMessage *okMessage = new BMessage(MSG_SETTINGS_APPLY);
+		okMessage->AddBool("close", true);
+		BButton *ok = new BButton(BRect(108, 116, 168, 144), "ok",
+			B_TRANSLATE("OK"), okMessage);
+		ok->SetTarget(this);
+		view->AddChild(ok);
+
+		BButton *cancel = new BButton(BRect(16, 116, 100, 144), "cancel",
+			B_TRANSLATE("Cancel"), new BMessage('cncl'));
+		cancel->SetTarget(this);
+		view->AddChild(cancel);
+
+		CenterOnScreen();
+	}
+
+	virtual void MessageReceived(BMessage *message)
+	{
+		if (message->what == MSG_SETTINGS_APPLY) {
+			BMessage apply(MSG_SETTINGS_APPLY);
+			apply.AddBool("sound", fSound->Value() == B_CONTROL_ON);
+			apply.AddBool("pal", fPal->Value() == B_CONTROL_ON);
+			bool close = false;
+			close = message_bool(*message, "close");
+			apply.AddBool("close", close);
+			fOwner.SendMessage(&apply);
+			return;
+		}
+		if (message->what == 'cncl') {
+			Quit();
+			return;
+		}
+		BWindow::MessageReceived(message);
+	}
+
+	virtual bool QuitRequested()
+	{
+		BMessage closed(MSG_SETTINGS_CLOSED);
+		fOwner.SendMessage(&closed);
+		return BWindow::QuitRequested();
+	}
+
+private:
+	BMessenger fOwner;
+	BCheckBox *fSound;
+	BRadioButton *fNtsc;
+	BRadioButton *fPal;
+};
+
+class DGenKeyButton : public BButton {
+public:
+	DGenKeyButton(BRect frame, const char *name, const char *label,
+		int player, int action)
+		: BButton(frame, name, label, NULL),
+		  fPlayer(player),
+		  fAction(action)
+	{
+	}
+
+	virtual void KeyDown(BMessage *message)
+	{
+		DGenKey key;
+		if (!dgen_input_key_from_message(*message, key))
+			return;
+
+		BMessage captured(MSG_INPUT_CAPTURE);
+		captured.AddInt32("player", fPlayer);
+		captured.AddInt32("action", fAction);
+		captured.AddInt32("modifiers", (int32)key.modifiers);
+		captured.AddInt32("key", key.key);
+		captured.AddInt32("byteValue", key.byteValue);
+		if (Window() != NULL)
+			Window()->PostMessage(&captured);
+	}
+
+private:
+	int fPlayer;
+	int fAction;
+};
+
+class ConfigureInputWindow : public BWindow {
+public:
+	ConfigureInputWindow(BMessenger owner, const DGenInputMap &map)
+		: BWindow(BRect(0, 0, 520, 420), B_TRANSLATE("Configure controls"),
+			B_TITLED_WINDOW, B_NOT_RESIZABLE | B_NOT_ZOOMABLE),
+		  fOwner(owner),
+		  fMap(map)
+	{
+		BView *view = new BView(Bounds(), "inputView", B_FOLLOW_ALL,
+			B_WILL_DRAW);
+		view->SetViewColor(ui_color(B_PANEL_BACKGROUND_COLOR));
+		AddChild(view);
+
+		for (int player = 0; player < 2; player++) {
+			float x = 12 + player * 250;
+			BString heading;
+			heading.SetToFormat(B_TRANSLATE("Player %d"), player + 1);
+			BStringView *title = new BStringView(BRect(x, 10, x + 230, 28),
+				"player", heading.String());
+			title->SetFont(be_bold_font);
+			view->AddChild(title);
+
+			for (int action = 0; action < DGEN_INPUT_ACTION_COUNT; action++) {
+				float y = 38 + action * 25;
+				BStringView *label = new BStringView(
+					BRect(x, y, x + 92, y + 18), "action",
+					B_TRANSLATE(dgen_input_action_label(action)));
+				view->AddChild(label);
+
+				BString keyLabel = dgen_input_key_label(
+					fMap.keys[player][action]);
+				DGenKeyButton *button = new DGenKeyButton(
+					BRect(x + 96, y - 2, x + 234, y + 20), "key",
+					keyLabel.String(), player, action);
+				fButtons[player][action] = button;
+				view->AddChild(button);
+			}
+		}
+
+		BStringView *hint = new BStringView(BRect(12, 344, 508, 364), "hint",
+			B_TRANSLATE("Click a button, then press the key you want to assign."));
+		view->AddChild(hint);
+
+		BButton *reset = new BButton(BRect(12, 374, 132, 404), "reset",
+			B_TRANSLATE("Reset defaults"), new BMessage(MSG_INPUT_RESET));
+		reset->SetTarget(this);
+		view->AddChild(reset);
+
+		BMessage *applyMessage = new BMessage(MSG_INPUT_APPLY);
+		applyMessage->AddBool("close", false);
+		BButton *apply = new BButton(BRect(348, 374, 506, 404), "apply",
+			B_TRANSLATE("Apply"), applyMessage);
+		apply->SetTarget(this);
+		apply->MakeDefault(true);
+		view->AddChild(apply);
+
+		BMessage *okMessage = new BMessage(MSG_INPUT_APPLY);
+		okMessage->AddBool("close", true);
+		BButton *ok = new BButton(BRect(256, 374, 340, 404), "ok",
+			B_TRANSLATE("OK"), okMessage);
+		ok->SetTarget(this);
+		view->AddChild(ok);
+
+		BButton *cancel = new BButton(BRect(140, 374, 248, 404), "cancel",
+			B_TRANSLATE("Cancel"), new BMessage('cncl'));
+		cancel->SetTarget(this);
+		view->AddChild(cancel);
+
+		CenterOnScreen();
+	}
+
+	virtual void MessageReceived(BMessage *message)
+	{
+		switch (message->what) {
+		case MSG_INPUT_CAPTURE: {
+			int player = message->FindInt32("player");
+			int action = message->FindInt32("action");
+			DGenKey key;
+			if (dgen_input_key_from_message(*message, key) &&
+				player >= 0 && player < 2 && action >= 0 &&
+				action < DGEN_INPUT_ACTION_COUNT) {
+				fMap.keys[player][action] = key;
+				BString label = dgen_input_key_label(key);
+				fButtons[player][action]->SetLabel(label.String());
+			}
+			break;
+		}
+		case MSG_INPUT_RESET:
+			dgen_input_defaults(fMap);
+			RefreshButtons();
+			break;
+		case MSG_INPUT_APPLY: {
+			BMessage apply(MSG_INPUT_APPLY);
+			dgen_input_save(apply, fMap);
+			bool close = false;
+			close = message_bool(*message, "close");
+			apply.AddBool("close", close);
+			fOwner.SendMessage(&apply);
+			break;
+		}
+		case 'cncl':
+			Quit();
+			break;
+		default:
+			BWindow::MessageReceived(message);
+			break;
+		}
+	}
+
+	virtual bool QuitRequested()
+	{
+		BMessage closed(MSG_INPUT_CLOSED);
+		fOwner.SendMessage(&closed);
+		return BWindow::QuitRequested();
+	}
+
+private:
+	void RefreshButtons()
+	{
+		for (int player = 0; player < 2; player++) {
+			for (int action = 0; action < DGEN_INPUT_ACTION_COUNT; action++) {
+				BString label = dgen_input_key_label(fMap.keys[player][action]);
+				fButtons[player][action]->SetLabel(label.String());
+			}
+		}
+	}
+
+	BMessenger fOwner;
+	DGenInputMap fMap;
+	DGenKeyButton *fButtons[2][DGEN_INPUT_ACTION_COUNT];
+};
+
+static void open_joystick_preferences()
+{
+	BEntry entry("/boot/system/preferences/Joystick");
+	entry_ref ref;
+	if (entry.InitCheck() == B_OK && entry.GetRef(&ref) == B_OK &&
+		be_roster->Launch(&ref) == B_OK)
+		return;
+
+	BAlert *alert = new BAlert(B_TRANSLATE("Joystick calibration"),
+		B_TRANSLATE("No joystick calibration tool is available. "
+			"The native DGen front end currently uses keyboard controls; "
+			"use Input → Configure controls to change them."),
+		B_TRANSLATE("OK"));
+	alert->Go();
+}
+
 DGenWindow::DGenWindow()
 	: BWindow(BRect(0, 0, 655, 489), "DGen", B_TITLED_WINDOW,
 		B_ASYNCHRONOUS_CONTROLS),
 	  fOpenPanel(NULL),
 	  fGameGenieWindow(NULL),
+	  fSettingsWindow(NULL),
+	  fInputWindow(NULL),
 	  fMenuBar(NULL),
 	  fRecentMenu(NULL),
 	  fView(NULL),
@@ -102,6 +380,10 @@ DGenWindow::DGenWindow()
 	  fScale(2)
 {
 	bool restoredFrame = false;
+	bool sound = true;
+	bool pal = false;
+	bool hasEmulationSettings = false;
+	dgen_input_defaults(fInputMap);
 	BMessage settings;
 	if (dgen_app_instance != NULL &&
 		dgen_app_instance->LoadSettings(settings) == B_OK) {
@@ -115,13 +397,24 @@ DGenWindow::DGenWindow()
 			fScale = settings.FindInt32("scale");
 		if (settings.HasBool("show_status"))
 			fShowStatus = settings.FindBool("show_status");
+		if (settings.HasBool("sound")) {
+			sound = settings.FindBool("sound");
+			hasEmulationSettings = true;
+		}
+		if (settings.HasBool("pal")) {
+			pal = settings.FindBool("pal");
+			hasEmulationSettings = true;
+		}
+		dgen_input_load(settings, fInputMap);
 	}
+	if (hasEmulationSettings)
+		dgen_haiku_set_emulation_settings(sound, pal, pal ? 50 : 60);
 
 	fNormalFrame = Frame();
 	BuildMenus();
 	AddChild(fMenuBar);
 
-	fView = new DGenView(BRect(0, 21, 655, 466));
+	fView = new DGenView(BRect(0, 21, 655, 466), &fInputMap);
 	AddChild(fView);
 
 	fStatus = new BStringView(BRect(0, 469, 655, 479), "status",
@@ -141,6 +434,10 @@ DGenWindow::~DGenWindow()
 	delete fOpenPanel;
 	if (fGameGenieWindow != NULL)
 		fGameGenieWindow->PostMessage(B_QUIT_REQUESTED);
+	if (fSettingsWindow != NULL)
+		fSettingsWindow->PostMessage(B_QUIT_REQUESTED);
+	if (fInputWindow != NULL)
+		fInputWindow->PostMessage(B_QUIT_REQUESTED);
 }
 
 void DGenWindow::FrameMoved(BPoint)
@@ -380,9 +677,19 @@ void DGenWindow::SaveSettings() const
 	settings.RemoveName("frame");
 	settings.RemoveName("scale");
 	settings.RemoveName("show_status");
+	settings.RemoveName("sound");
+	settings.RemoveName("pal");
 	settings.AddRect("frame", fFullScreen ? fNormalFrame : Frame());
 	settings.AddInt32("scale", fScale);
 	settings.AddBool("show_status", fShowStatus);
+
+	bool sound = true;
+	bool pal = false;
+	int hz = 60;
+	dgen_haiku_get_emulation_settings(sound, pal, hz);
+	settings.AddBool("sound", sound);
+	settings.AddBool("pal", pal);
+	dgen_input_save(settings, fInputMap);
 	dgen_app_instance->SaveSettings(settings);
 }
 
@@ -485,10 +792,56 @@ void DGenWindow::MessageReceived(BMessage *message)
 		SaveSettings();
 		break;
 	case MSG_CONFIGURE_INPUT:
+		if (fInputWindow == NULL)
+			fInputWindow = new ConfigureInputWindow(BMessenger(this), fInputMap);
+		else
+			fInputWindow->Activate();
+		break;
 	case MSG_CALIBRATE:
-	case MSG_SETTINGS:
+		open_joystick_preferences();
+		break;
+	case MSG_SETTINGS: {
+		bool sound = true;
+		bool pal = false;
+		int hz = 60;
+		dgen_haiku_get_emulation_settings(sound, pal, hz);
+		if (fSettingsWindow == NULL)
+			fSettingsWindow = new SettingsWindow(BMessenger(this), sound, pal);
+		else
+			fSettingsWindow->Activate();
+		break;
+	}
+	case MSG_SETTINGS_APPLY: {
+		bool sound = false;
+		bool pal = false;
+		bool close = false;
+		sound = message_bool(*message, "sound", sound);
+		pal = message_bool(*message, "pal", pal);
+		close = message_bool(*message, "close");
+		dgen_haiku_set_emulation_settings(sound, pal, pal ? 50 : 60);
+		SaveSettings();
+		if (close && fSettingsWindow != NULL)
+			fSettingsWindow->PostMessage(B_QUIT_REQUESTED);
+		break;
+	}
+	case MSG_SETTINGS_CLOSED:
+		fSettingsWindow = NULL;
+		break;
+	case MSG_INPUT_APPLY: {
+		bool close = false;
+		close = message_bool(*message, "close");
+		dgen_input_load(*message, fInputMap);
+		if (fView != NULL)
+			fView->SetInputMap(&fInputMap);
 		if (fStatus != NULL)
-			fStatus->SetText(B_TRANSLATE("This dialog is not wired up yet."));
+			fStatus->SetText(B_TRANSLATE("Controls updated."));
+		SaveSettings();
+		if (close && fInputWindow != NULL)
+			fInputWindow->PostMessage(B_QUIT_REQUESTED);
+		break;
+	}
+	case MSG_INPUT_CLOSED:
+		fInputWindow = NULL;
 		break;
 	case MSG_GAME_GENIE:
 		if (fGameGenieWindow == NULL)
