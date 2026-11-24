@@ -104,7 +104,7 @@ void DGenView::KeyDown(BMessage *message)
 			uint32_t mask = dgen_input_action_mask(action);
 			if (mask == 0)
 				continue;
-			fPad[player] |= mask;
+			fPad[player] &= ~mask;
 			dgen_haiku_set_pad(player, fPad[player]);
 			changed = true;
 		}
@@ -137,7 +137,7 @@ void DGenView::KeyUp(BMessage *message)
 			uint32_t mask = dgen_input_action_mask(action);
 			if (mask == 0)
 				continue;
-			fPad[player] &= ~mask;
+			fPad[player] |= mask;
 			dgen_haiku_set_pad(player, fPad[player]);
 		}
 	}

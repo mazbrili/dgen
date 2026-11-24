@@ -144,7 +144,7 @@ AS_IF(
 			[
 				for haiku_dir in \
 				headers headers/os headers/os/add-ons/graphics \
-				headers/os/app headers/os/interface headers/os/locale \
+				headers/os/app headers/os/device headers/os/interface headers/os/locale \
 				headers/os/media headers/os/storage \
 				headers/os/support \
 					headers/os/kernel \
@@ -224,7 +224,20 @@ AC_ARG_ENABLE(
 	[USE_JOYSTICK=auto]
 )
 AS_IF(
-	[test "x$USE_JOYSTICK" != xno],
+	[test "x$USE_JOYSTICK" != xno -a "x$USE_HAIKU" = xyes],
+	[AC_LANG_PUSH([C++])]
+	[AC_CHECK_HEADER(
+		[Joystick.h],
+		[USE_JOYSTICK=yes
+		AS_CASE([" $HAIKU_LIBS "], [*" -ldevice "*], [],
+			[HAIKU_LIBS="$HAIKU_LIBS -ldevice"])
+		LIBS="$LIBS -ldevice"],
+		[USE_JOYSTICK=no]
+	)]
+	[AC_LANG_POP([C++])]
+)
+AS_IF(
+	[test "x$USE_JOYSTICK" != xno -a "x$USE_HAIKU" != xyes],
 	[AC_CHECK_HEADER(
 		[SDL_joystick.h],
 		[USE_JOYSTICK=yes],

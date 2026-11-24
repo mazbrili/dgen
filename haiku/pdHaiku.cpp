@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "DGenApp.h"
+#include "DGenJoystick.h"
 #include "DGenMessages.h"
 #include "DGenWindow.h"
 #include "pd.h"
@@ -40,6 +41,7 @@ static DGenApp *sApp = NULL;
 static std::atomic<bool> sAppReady(false);
 static std::atomic<bool> sWindowReady(false);
 static DGenWindow *sWindow = NULL;
+static std::mutex sWindowLock;
 static BBitmap *sBitmap = NULL;
 static unsigned char *sFrameBuffer = NULL;
 static int sVisibleWidth = 320;
@@ -64,6 +66,7 @@ static std::atomic<bool> sSettingsDirty(false);
 static std::atomic<bool> sSoundChanged(false);
 static std::atomic<bool> sVideoChanged(false);
 static std::atomic<uint32_t> sPad[2];
+static std::atomic<uint32_t> sJoystickPad[2];
 static std::atomic<uint32_t> sPrevPad[2];
 
 static std::mutex sPathLock;
@@ -79,6 +82,26 @@ static bool sHasPendingGenie = false;
 
 static md *sMegad = NULL;
 
+static void post_window_message(BMessage *message)
+{
+	std::lock_guard<std::mutex> lock(sWindowLock);
+	if (sWindow != NULL)
+		sWindow->PostMessage(message);
+}
+
+static void post_window_message(uint32 what)
+{
+	std::lock_guard<std::mutex> lock(sWindowLock);
+	if (sWindow != NULL)
+		sWindow->PostMessage(what);
+}
+
+static void post_app_quit()
+{
+	if (sApp != NULL)
+		sApp->PostMessage(B_QUIT_REQUESTED);
+}
+
 struct EmulatorThreadData {
 	int (*entry)(void *);
 	void *arg;
@@ -90,8 +113,7 @@ static int32 emulator_thread(void *data)
 	EmulatorThreadData *threadData = (EmulatorThreadData *)data;
 	threadData->result = threadData->entry(threadData->arg);
 	dgen_haiku_request_quit();
-	if (sWindow != NULL)
-		sWindow->PostMessage(B_QUIT_REQUESTED);
+	post_app_quit();
 	return 0;
 }
 
@@ -102,6 +124,9 @@ int pd_run(int (*entry)(void *), void *arg)
 	sWindow->Show();
 	sWindowReady.store(true);
 	sAppReady.store(true);
+#ifdef WITH_JOYSTICK
+	dgen_haiku_joystick_open();
+#endif
 	fprintf(stderr, "dgen: native Haiku UI ready\n");
 
 	EmulatorThreadData data = { entry, arg, 0 };
@@ -110,14 +135,22 @@ int pd_run(int (*entry)(void *), void *arg)
 	if (thread < B_OK) {
 		fprintf(stderr, "dgen: could not start emulator thread: %s\n",
 			strerror((int)thread));
+#ifdef WITH_JOYSTICK
+		dgen_haiku_joystick_close();
+#endif
 		sApp->Quit();
 		return 1;
 	}
 	resume_thread(thread);
 	fprintf(stderr, "dgen: emulator thread started\n");
 	sApp->Run();
+	dgen_haiku_request_quit();
+	dgen_haiku_attach_window(NULL);
 	status_t status = B_OK;
 	wait_for_thread(thread, &status);
+#ifdef WITH_JOYSTICK
+	dgen_haiku_joystick_close();
+#endif
 	return data.result;
 }
 
@@ -125,8 +158,7 @@ static void post_status(const char *text)
 {
 	BMessage message(MSG_STATUS_TEXT);
 	message.AddString("text", text);
-	if (sWindow != NULL)
-		sWindow->PostMessage(&message);
+	post_window_message(&message);
 }
 
 unsigned long pd_usecs(void)
@@ -144,7 +176,8 @@ int pd_graphics_init(int want_sound, int want_pal, int hz)
 	sHz.store(hz);
 
 	for (int i = 0; i < 2; i++) {
-		sPad[i].store(0);
+		sPad[i].store(MD_PAD_UNTOUCHED);
+		sJoystickPad[i].store(MD_PAD_UNTOUCHED);
 		sPrevPad[i].store(0);
 	}
 
@@ -180,8 +213,7 @@ int pd_graphics_init(int want_sound, int want_pal, int hz)
 	BMessage message(MSG_SET_FRAME_BITMAP);
 	message.AddPointer("bitmap", sBitmap);
 	message.AddPointer("old", oldBitmap);
-	if (sWindow != NULL)
-		sWindow->PostMessage(&message);
+	post_window_message(&message);
 
 	mdpal = NULL;
 
@@ -210,7 +242,7 @@ void pd_graphics_update(bool update)
 		memcpy(target + ((size_t)y * sBitmap->BytesPerRow()),
 			source + ((size_t)y * mdscr.pitch), rowBytes);
 
-	sWindow->PostMessage(MSG_UPDATE_FRAME);
+	post_window_message(MSG_UPDATE_FRAME);
 }
 
 static void sound_callback(void *, void *buffer, size_t size,
@@ -515,8 +547,11 @@ int pd_handle_events(md &megad)
 			post_status(B_TRANSLATE("Aborted."));
 	}
 
+#ifdef WITH_JOYSTICK
+	dgen_haiku_joystick_poll();
+#endif
 	for (int i = 0; i < 2; i++) {
-		uint32_t current = sPad[i].load();
+		uint32_t current = sPad[i].load() & sJoystickPad[i].load();
 		uint32_t previous = sPrevPad[i].load();
 		megad.pad[i] = (megad.pad[i] & ~previous) | current;
 		sPrevPad[i].store(current);
@@ -556,9 +591,11 @@ void pd_show_carthead(md &megad)
 
 void pd_quit()
 {
+#ifdef WITH_JOYSTICK
+	dgen_haiku_joystick_close();
+#endif
 	sQuit.store(true);
-	if (sWindow != NULL)
-		sWindow->PostMessage(B_QUIT_REQUESTED);
+	post_app_quit();
 }
 
 DGenWindow *dgen_haiku_window(void)
@@ -568,6 +605,7 @@ DGenWindow *dgen_haiku_window(void)
 
 void dgen_haiku_attach_window(DGenWindow *window)
 {
+	std::lock_guard<std::mutex> lock(sWindowLock);
 	sWindow = window;
 }
 
@@ -575,6 +613,12 @@ void dgen_haiku_set_pad(int player, uint32_t mask)
 {
 	if (player >= 0 && player < 2)
 		sPad[player].store(mask);
+}
+
+void dgen_haiku_set_joystick_pad(int player, uint32_t mask)
+{
+	if (player >= 0 && player < 2)
+		sJoystickPad[player].store(mask);
 }
 
 void dgen_haiku_request_quit(void)

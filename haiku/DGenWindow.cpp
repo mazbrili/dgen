@@ -354,8 +354,9 @@ static void open_joystick_preferences()
 
 	BAlert *alert = new BAlert(B_TRANSLATE("Joystick calibration"),
 		B_TRANSLATE("No joystick calibration tool is available. "
-			"The native DGen front end currently uses keyboard controls; "
-			"use Input → Configure controls to change them."),
+			"Connect and calibrate a joystick with the Haiku Joystick "
+			"preferences, then use Input → Configure controls to change "
+			"keyboard bindings."),
 		B_TRANSLATE("OK"));
 	alert->Go();
 }
@@ -363,8 +364,9 @@ static void open_joystick_preferences()
 static void show_help()
 {
 	BAlert *alert = new BAlert(B_TRANSLATE("DGen Help"),
-		B_TRANSLATE("Open a ROM with File → Open ROM…, then use the controls "
-			"configured in Input → Configure controls….\n\n"
+		B_TRANSLATE("Open a ROM with File → Open ROM…, then use the keyboard "
+			"controls configured in Input → Configure controls… or a "
+			"calibrated joystick.\n\n"
 			"Escape quits DGen. Use Emulation → Pause to pause, and Tools → "
 			"Save state or Load state to keep your place."),
 		B_TRANSLATE("OK"));
@@ -444,6 +446,7 @@ DGenWindow::DGenWindow()
 
 DGenWindow::~DGenWindow()
 {
+	dgen_haiku_attach_window(NULL);
 	delete fOpenPanel;
 	if (fGameGenieWindow != NULL)
 		fGameGenieWindow->PostMessage(B_QUIT_REQUESTED);

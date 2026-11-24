@@ -8,6 +8,7 @@ class DGenWindow;
 DGenWindow *dgen_haiku_window(void);
 void dgen_haiku_attach_window(DGenWindow *window);
 void dgen_haiku_set_pad(int player, uint32_t mask);
+void dgen_haiku_set_joystick_pad(int player, uint32_t mask);
 void dgen_haiku_request_quit(void);
 void dgen_haiku_request_reset(bool hard);
 void dgen_haiku_set_paused(bool paused);

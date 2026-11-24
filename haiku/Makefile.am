@@ -9,6 +9,8 @@ libpd_a_SOURCES = \
 	DGenApp.h \
 	DGenInput.cpp \
 	DGenInput.h \
+	DGenJoystick.cpp \
+	DGenJoystick.h \
 	DGenLocale.h \
 	DGenMessages.h \
 	DGenView.cpp \
