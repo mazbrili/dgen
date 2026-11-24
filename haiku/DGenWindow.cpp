@@ -64,6 +64,7 @@ public:
 		view->AddChild(cancel);
 
 		CenterOnScreen();
+		Show();
 	}
 
 	virtual void MessageReceived(BMessage *message)
@@ -145,6 +146,7 @@ public:
 		view->AddChild(cancel);
 
 		CenterOnScreen();
+		Show();
 	}
 
 	virtual void MessageReceived(BMessage *message)
@@ -280,6 +282,7 @@ public:
 		view->AddChild(cancel);
 
 		CenterOnScreen();
+		Show();
 	}
 
 	virtual void MessageReceived(BMessage *message)
