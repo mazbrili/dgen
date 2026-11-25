@@ -24,6 +24,9 @@
 #include <cstdio>
 
 #include "DGenApp.h"
+#ifdef WITH_JOYSTICK
+#include "DGenJoystick.h"
+#endif
 #include "DGenMessages.h"
 #include "DGenView.h"
 #include "pdHaiku.h"
@@ -73,11 +76,11 @@ public:
 			BMessage apply(MSG_GAME_GENIE_APPLY);
 			apply.AddString("code", fCode->Text());
 			fOwner.SendMessage(&apply);
-			Quit();
+			PostMessage(B_QUIT_REQUESTED);
 			return;
 		}
 		if (message->what == 'cncl') {
-			Quit();
+			PostMessage(B_QUIT_REQUESTED);
 			return;
 		}
 		BWindow::MessageReceived(message);
@@ -162,7 +165,7 @@ public:
 			return;
 		}
 		if (message->what == 'cncl') {
-			Quit();
+			PostMessage(B_QUIT_REQUESTED);
 			return;
 		}
 		BWindow::MessageReceived(message);
@@ -216,10 +219,15 @@ private:
 class ConfigureInputWindow : public BWindow {
 public:
 	ConfigureInputWindow(BMessenger owner, const DGenInputMap &map)
-		: BWindow(BRect(0, 0, 520, 420), B_TRANSLATE("Configure controls"),
+		: BWindow(BRect(0, 0, 720, 420), B_TRANSLATE("Configure controls"),
 			B_TITLED_WINDOW, B_NOT_RESIZABLE | B_NOT_ZOOMABLE),
 		  fOwner(owner),
-		  fMap(map)
+		  fMap(map),
+		  fHint(NULL),
+		  fCapturePlayer(-1),
+		  fCaptureAction(-1),
+		  fSelectedPlayer(-1),
+		  fSelectedAction(-1)
 	{
 		BView *view = new BView(Bounds(), "inputView", B_FOLLOW_ALL,
 			B_WILL_DRAW);
@@ -227,59 +235,94 @@ public:
 		AddChild(view);
 
 		for (int player = 0; player < 2; player++) {
-			float x = 12 + player * 250;
+			float x = 12 + player * 350;
 			BString heading;
 			heading.SetToFormat(B_TRANSLATE("Player %d"), player + 1);
-			BStringView *title = new BStringView(BRect(x, 10, x + 230, 28),
+			BStringView *title = new BStringView(BRect(x, 10, x + 338, 28),
 				"player", heading.String());
 			title->SetFont(be_bold_font);
 			view->AddChild(title);
 
+			BStringView *keyHeader = new BStringView(
+				BRect(x + 82, 30, x + 190, 46), "keyHeader",
+				B_TRANSLATE("Keyboard"));
+			view->AddChild(keyHeader);
+#ifdef WITH_JOYSTICK
+			BStringView *joyHeader = new BStringView(
+				BRect(x + 194, 30, x + 338, 46), "joyHeader",
+				B_TRANSLATE("Joystick"));
+			view->AddChild(joyHeader);
+#endif
+
 			for (int action = 0; action < DGEN_INPUT_ACTION_COUNT; action++) {
-				float y = 38 + action * 25;
+				float y = 52 + action * 24;
 				BStringView *label = new BStringView(
-					BRect(x, y, x + 92, y + 18), "action",
+					BRect(x, y, x + 78, y + 18), "action",
 					B_TRANSLATE(dgen_input_action_label(action)));
 				view->AddChild(label);
 
 				BString keyLabel = dgen_input_key_label(
 					fMap.keys[player][action]);
 				DGenKeyButton *button = new DGenKeyButton(
-					BRect(x + 96, y - 2, x + 234, y + 20), "key",
+					BRect(x + 82, y - 2, x + 190, y + 20), "key",
 					keyLabel.String(), player, action);
 				fButtons[player][action] = button;
 				view->AddChild(button);
+
+#ifdef WITH_JOYSTICK
+				BMessage *joyMessage = new BMessage(
+					MSG_JOYSTICK_CAPTURE_BEGIN);
+				joyMessage->AddInt32("player", player);
+				joyMessage->AddInt32("action", action);
+				BString joyLabel("J: ");
+				joyLabel += dgen_input_joystick_label(
+					fMap.joystick[player][action]);
+				BButton *joyButton = new BButton(
+					BRect(x + 194, y - 2, x + 338, y + 20), "joystick",
+					joyLabel.String(), joyMessage);
+				joyButton->SetTarget(this);
+				fJoyButtons[player][action] = joyButton;
+				view->AddChild(joyButton);
+#endif
 			}
 		}
 
-		BStringView *hint = new BStringView(BRect(12, 344, 508, 364), "hint",
-			B_TRANSLATE("Click a button, then press the key you want to assign."));
-		view->AddChild(hint);
+		fHint = new BStringView(BRect(12, 344, 708, 364), "hint",
+			B_TRANSLATE("Click a button, then press a key or move a joystick."));
+		view->AddChild(fHint);
 
 		BButton *reset = new BButton(BRect(12, 374, 132, 404), "reset",
 			B_TRANSLATE("Reset defaults"), new BMessage(MSG_INPUT_RESET));
 		reset->SetTarget(this);
 		view->AddChild(reset);
 
-		BMessage *applyMessage = new BMessage(MSG_INPUT_APPLY);
-		applyMessage->AddBool("close", false);
-		BButton *apply = new BButton(BRect(348, 374, 506, 404), "apply",
-			B_TRANSLATE("Apply"), applyMessage);
-		apply->SetTarget(this);
-		apply->MakeDefault(true);
-		view->AddChild(apply);
+		BButton *clear = new BButton(BRect(140, 374, 338, 404), "clearjoy",
+			B_TRANSLATE("Clear joystick"), new BMessage(MSG_JOYSTICK_CLEAR));
+		clear->SetTarget(this);
+#ifndef WITH_JOYSTICK
+		clear->SetEnabled(false);
+#endif
+		view->AddChild(clear);
+
+		BButton *cancel = new BButton(BRect(340, 374, 448, 404), "cancel",
+			B_TRANSLATE("Cancel"), new BMessage('cncl'));
+		cancel->SetTarget(this);
+		view->AddChild(cancel);
 
 		BMessage *okMessage = new BMessage(MSG_INPUT_APPLY);
 		okMessage->AddBool("close", true);
-		BButton *ok = new BButton(BRect(256, 374, 340, 404), "ok",
+		BButton *ok = new BButton(BRect(456, 374, 540, 404), "ok",
 			B_TRANSLATE("OK"), okMessage);
 		ok->SetTarget(this);
 		view->AddChild(ok);
 
-		BButton *cancel = new BButton(BRect(140, 374, 248, 404), "cancel",
-			B_TRANSLATE("Cancel"), new BMessage('cncl'));
-		cancel->SetTarget(this);
-		view->AddChild(cancel);
+		BMessage *applyMessage = new BMessage(MSG_INPUT_APPLY);
+		applyMessage->AddBool("close", false);
+		BButton *apply = new BButton(BRect(548, 374, 708, 404), "apply",
+			B_TRANSLATE("Apply"), applyMessage);
+		apply->SetTarget(this);
+		apply->MakeDefault(true);
+		view->AddChild(apply);
 
 		CenterOnScreen();
 		Show();
@@ -302,11 +345,68 @@ public:
 			}
 			break;
 		}
+#ifdef WITH_JOYSTICK
+		case MSG_JOYSTICK_CAPTURE_BEGIN: {
+			int player = message->FindInt32("player");
+			int action = message->FindInt32("action");
+			if (player >= 0 && player < 2 && action >= 0 &&
+				action < DGEN_INPUT_ACTION_COUNT) {
+				EndJoystickCapture();
+				fCapturePlayer = player;
+				fCaptureAction = action;
+				fSelectedPlayer = player;
+				fSelectedAction = action;
+				fJoyButtons[player][action]->SetLabel(
+					B_TRANSLATE("Waiting..."));
+				fHint->SetText(B_TRANSLATE(
+					"Press a joystick button, move an axis, or tilt a hat."));
+				dgen_haiku_joystick_begin_capture(BMessenger(this), player);
+			}
+			break;
+		}
+		case MSG_JOYSTICK_CAPTURE: {
+			int player = message->FindInt32("player");
+			int action = fCaptureAction;
+			int32 code = message->FindInt32("code");
+			if (fCapturePlayer == player && code != 0 && player >= 0 &&
+				player < 2 && action >= 0 &&
+				action < DGEN_INPUT_ACTION_COUNT) {
+				fMap.joystick[player][action] = (uint32)code;
+				dgen_input_clear_joystick_conflicts(fMap, player, action,
+					(uint32)code);
+				EndJoystickCapture();
+				RefreshJoyButtons();
+				fHint->SetText(B_TRANSLATE(
+					"Click a button, then press a key or move a joystick."));
+			}
+			break;
+		}
+		case MSG_JOYSTICK_CLEAR: {
+			EndJoystickCapture();
+			if (fSelectedPlayer >= 0 && fSelectedAction >= 0) {
+				fMap.joystick[fSelectedPlayer][fSelectedAction] = 0;
+				RefreshJoyButtons();
+				fHint->SetText(B_TRANSLATE(
+					"Click a button, then press a key or move a joystick."));
+			} else {
+				fHint->SetText(B_TRANSLATE(
+					"Select a joystick binding to clear."));
+			}
+			break;
+		}
+#endif
 		case MSG_INPUT_RESET:
+			EndJoystickCapture();
 			dgen_input_defaults(fMap);
+			fSelectedPlayer = -1;
+			fSelectedAction = -1;
 			RefreshButtons();
+			RefreshJoyButtons();
+			fHint->SetText(B_TRANSLATE(
+				"Click a button, then press a key or move a joystick."));
 			break;
 		case MSG_INPUT_APPLY: {
+			EndJoystickCapture();
 			BMessage apply(MSG_INPUT_APPLY);
 			dgen_input_save(apply, fMap);
 			bool close = false;
@@ -316,7 +416,8 @@ public:
 			break;
 		}
 		case 'cncl':
-			Quit();
+			EndJoystickCapture();
+			PostMessage(B_QUIT_REQUESTED);
 			break;
 		default:
 			BWindow::MessageReceived(message);
@@ -326,12 +427,22 @@ public:
 
 	virtual bool QuitRequested()
 	{
+		EndJoystickCapture();
 		BMessage closed(MSG_INPUT_CLOSED);
 		fOwner.SendMessage(&closed);
 		return BWindow::QuitRequested();
 	}
 
 private:
+	void EndJoystickCapture()
+	{
+#ifdef WITH_JOYSTICK
+		dgen_haiku_joystick_end_capture();
+#endif
+		fCapturePlayer = -1;
+		fCaptureAction = -1;
+	}
+
 	void RefreshButtons()
 	{
 		for (int player = 0; player < 2; player++) {
@@ -342,9 +453,31 @@ private:
 		}
 	}
 
+	void RefreshJoyButtons()
+	{
+#ifdef WITH_JOYSTICK
+		for (int player = 0; player < 2; player++) {
+			for (int action = 0; action < DGEN_INPUT_ACTION_COUNT; action++) {
+				BString label("J: ");
+				label += dgen_input_joystick_label(
+					fMap.joystick[player][action]);
+				fJoyButtons[player][action]->SetLabel(label.String());
+			}
+		}
+#endif
+	}
+
 	BMessenger fOwner;
 	DGenInputMap fMap;
 	DGenKeyButton *fButtons[2][DGEN_INPUT_ACTION_COUNT];
+#ifdef WITH_JOYSTICK
+	BButton *fJoyButtons[2][DGEN_INPUT_ACTION_COUNT];
+#endif
+	BStringView *fHint;
+	int fCapturePlayer;
+	int fCaptureAction;
+	int fSelectedPlayer;
+	int fSelectedAction;
 };
 
 static void open_joystick_preferences()
@@ -359,7 +492,7 @@ static void open_joystick_preferences()
 		B_TRANSLATE("No joystick calibration tool is available. "
 			"Connect and calibrate a joystick with the Haiku Joystick "
 			"preferences, then use Input → Configure controls to change "
-			"keyboard bindings."),
+			"keyboard or joystick bindings."),
 		B_TRANSLATE("OK"));
 	alert->Go();
 }
@@ -402,6 +535,7 @@ DGenWindow::DGenWindow()
 	bool pal = false;
 	bool hasEmulationSettings = false;
 	dgen_input_defaults(fInputMap);
+	dgen_input_load_current_joystick(fInputMap);
 	BMessage settings;
 	if (dgen_app_instance != NULL &&
 		dgen_app_instance->LoadSettings(settings) == B_OK) {
@@ -425,6 +559,7 @@ DGenWindow::DGenWindow()
 		}
 		dgen_input_load(settings, fInputMap);
 	}
+	dgen_input_apply_joystick(fInputMap);
 	if (hasEmulationSettings)
 		dgen_haiku_set_emulation_settings(sound, pal, pal ? 50 : 60);
 
@@ -858,8 +993,11 @@ void DGenWindow::MessageReceived(BMessage *message)
 		close = message_bool(*message, "close");
 		dgen_haiku_set_emulation_settings(sound, pal, pal ? 50 : 60);
 		SaveSettings();
-		if (close && fSettingsWindow != NULL)
-			fSettingsWindow->PostMessage(B_QUIT_REQUESTED);
+		if (close && fSettingsWindow != NULL) {
+			BWindow *window = fSettingsWindow;
+			fSettingsWindow = NULL;
+			window->PostMessage(B_QUIT_REQUESTED);
+		}
 		break;
 	}
 	case MSG_SETTINGS_CLOSED:
@@ -869,6 +1007,7 @@ void DGenWindow::MessageReceived(BMessage *message)
 		bool close = false;
 		close = message_bool(*message, "close");
 		dgen_input_load(*message, fInputMap);
+		dgen_input_apply_joystick(fInputMap);
 		if (fView != NULL)
 			fView->SetInputMap(&fInputMap);
 		if (fStatus != NULL)
@@ -876,12 +1015,17 @@ void DGenWindow::MessageReceived(BMessage *message)
 		SaveSettings();
 		if (close && fView != NULL)
 			fView->MakeFocus();
-		if (close && fInputWindow != NULL)
-			fInputWindow->PostMessage(B_QUIT_REQUESTED);
+		if (close && fInputWindow != NULL) {
+			BWindow *window = fInputWindow;
+			fInputWindow = NULL;
+			window->PostMessage(B_QUIT_REQUESTED);
+		}
 		break;
 	}
 	case MSG_INPUT_CLOSED:
 		fInputWindow = NULL;
+		if (fView != NULL)
+			fView->MakeFocus();
 		break;
 	case MSG_GAME_GENIE:
 		if (fGameGenieWindow == NULL)

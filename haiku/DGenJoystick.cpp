@@ -5,12 +5,15 @@
 #include "DGenLocale.h"
 
 #include <Joystick.h>
+#include <Message.h>
 #include <String.h>
 
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <new>
 
+#include "DGenMessages.h"
 #include "md.h"
 #include "pdHaiku.h"
 #include "rc-vars.h"
@@ -25,6 +28,9 @@ struct DGenJoystick::Device {
 	int16 *axes;
 	uint8 *hats;
 	bool *buttons;
+	uint8 *captureAxes;
+	uint8 *captureHats;
+	bool *captureButtons;
 	uint32_t lastPad;
 
 	Device()
@@ -35,6 +41,9 @@ struct DGenJoystick::Device {
 		  axes(NULL),
 		  hats(NULL),
 		  buttons(NULL),
+		  captureAxes(NULL),
+		  captureHats(NULL),
+		  captureButtons(NULL),
 		  lastPad(MD_PAD_UNTOUCHED)
 	{
 	}
@@ -45,6 +54,9 @@ struct DGenJoystick::Device {
 		delete[] axes;
 		delete[] hats;
 		delete[] buttons;
+		delete[] captureAxes;
+		delete[] captureHats;
+		delete[] captureButtons;
 	}
 
 	bool Allocate()
@@ -52,20 +64,36 @@ struct DGenJoystick::Device {
 		delete[] axes;
 		delete[] hats;
 		delete[] buttons;
+		delete[] captureAxes;
+		delete[] captureHats;
+		delete[] captureButtons;
 		axes = NULL;
 		hats = NULL;
 		buttons = NULL;
+		captureAxes = NULL;
+		captureHats = NULL;
+		captureButtons = NULL;
 		axisCount = stick.CountAxes();
 		hatCount = stick.CountHats();
 		buttonCount = stick.CountButtons();
 		axes = new(std::nothrow) int16[axisCount > 0 ? axisCount : 1];
 		hats = new(std::nothrow) uint8[hatCount > 0 ? hatCount : 1];
 		buttons = new(std::nothrow) bool[buttonCount > 0 ? buttonCount : 1];
-		if (axes == NULL || hats == NULL || buttons == NULL)
+		captureAxes = new(std::nothrow) uint8[axisCount > 0 ? axisCount : 1];
+		captureHats = new(std::nothrow) uint8[hatCount > 0 ? hatCount : 1];
+		captureButtons = new(std::nothrow) bool[buttonCount > 0 ? buttonCount : 1];
+		if (axes == NULL || hats == NULL || buttons == NULL ||
+			captureAxes == NULL || captureHats == NULL || captureButtons == NULL)
 			return false;
 		memset(axes, 0, (size_t)(axisCount > 0 ? axisCount : 1) * sizeof(int16));
 		memset(hats, 0, (size_t)(hatCount > 0 ? hatCount : 1) * sizeof(uint8));
 		memset(buttons, 0, (size_t)(buttonCount > 0 ? buttonCount : 1) * sizeof(bool));
+		memset(captureAxes, 0,
+			(size_t)(axisCount > 0 ? axisCount : 1) * sizeof(uint8));
+		memset(captureHats, 0,
+			(size_t)(hatCount > 0 ? hatCount : 1) * sizeof(uint8));
+		memset(captureButtons, 0,
+			(size_t)(buttonCount > 0 ? buttonCount : 1) * sizeof(bool));
 		return true;
 	}
 
@@ -79,6 +107,7 @@ struct DGenJoystick::Device {
 
 static DGenJoystick sJoystick;
 static bool sJoystickOpened = false;
+static std::mutex sCaptureLock;
 
 static int axis_direction(int16 value)
 {
@@ -108,6 +137,36 @@ static bool hat_has_direction(uint8 hat, int dir)
 static bool hat_direction_set(uint8 hat, uint32_t code)
 {
 	return hat_has_direction(hat, JS_GET_HAT_DIR(code));
+}
+
+static uint8 hat_direction(uint8 hat)
+{
+	switch (hat) {
+	case 1:
+	case 2:
+		return JS_HAT_UP;
+	case 3:
+	case 4:
+		return JS_HAT_RIGHT;
+	case 5:
+	case 6:
+		return JS_HAT_DOWN;
+	case 7:
+	case 8:
+		return JS_HAT_LEFT;
+	default:
+		return JS_HAT_CENTERED;
+	}
+}
+
+void DGenJoystick::SnapshotCapture(Device *dev)
+{
+	for (int i = 0; i < dev->buttonCount; i++)
+		dev->captureButtons[i] = dev->buttons[i];
+	for (int i = 0; i < dev->axisCount; i++)
+		dev->captureAxes[i] = (uint8)axis_direction(dev->axes[i]);
+	for (int i = 0; i < dev->hatCount; i++)
+		dev->captureHats[i] = hat_direction(dev->hats[i]);
 }
 
 static bool binding_for_pad(int player, uint32_t mask, uint32_t &code)
@@ -149,6 +208,9 @@ static bool binding_for_pad(int player, uint32_t mask, uint32_t &code)
 }
 
 DGenJoystick::DGenJoystick()
+	: fCapturePlayer(-1),
+	  fCaptureActive(false),
+	  fCapturePending(false)
 {
 	for (int i = 0; i < 2; i++)
 		fDevices[i] = NULL;
@@ -156,6 +218,7 @@ DGenJoystick::DGenJoystick()
 
 DGenJoystick::~DGenJoystick()
 {
+	EndCapture();
 	Close();
 }
 
@@ -217,6 +280,12 @@ void DGenJoystick::Poll()
 		if (dev->stick.Update() != B_OK) {
 			dev->Close();
 			dgen_haiku_set_joystick_pad(player, MD_PAD_UNTOUCHED);
+			std::lock_guard<std::mutex> lock(sCaptureLock);
+			if (fCaptureActive && fCapturePlayer == player) {
+				fCaptureActive = false;
+				fCapturePending = false;
+				fCaptureTarget = BMessenger();
+			}
 			continue;
 		}
 		if (dev->axisCount > 0)
@@ -225,6 +294,8 @@ void DGenJoystick::Poll()
 			dev->stick.GetHatValues(dev->hats, 0);
 		if (dev->buttonCount > 0)
 			dev->stick.GetButtonValues(dev->buttons, 0);
+
+		CheckCapture(player, dev);
 
 		uint32_t pad = dev->lastPad;
 		static const uint32_t masks[] = {
@@ -266,6 +337,75 @@ void DGenJoystick::Poll()
 	}
 }
 
+void DGenJoystick::CheckCapture(int player, Device *dev)
+{
+	BMessenger target;
+	{
+		std::lock_guard<std::mutex> lock(sCaptureLock);
+		if (!fCaptureActive || !fCapturePending || fCapturePlayer != player)
+			return;
+		target = fCaptureTarget;
+	}
+
+	uint32 code = 0;
+	for (int i = 0; i < dev->buttonCount && code == 0; i++) {
+		if (dev->buttons[i] && !dev->captureButtons[i])
+			code = JS_BUTTON(player, i);
+	}
+	for (int i = 0; i < dev->axisCount && code == 0; i++) {
+		int direction = axis_direction(dev->axes[i]);
+		if (direction != JS_AXIS_BETWEEN &&
+			(uint8)direction != dev->captureAxes[i])
+			code = JS_AXIS(player, i, direction);
+	}
+	for (int i = 0; i < dev->hatCount && code == 0; i++) {
+		uint8 direction = hat_direction(dev->hats[i]);
+		if (direction != JS_HAT_CENTERED && direction != dev->captureHats[i])
+			code = JS_HAT(player, i, direction);
+	}
+	SnapshotCapture(dev);
+
+	if (code == 0)
+		return;
+
+	{
+		std::lock_guard<std::mutex> lock(sCaptureLock);
+		if (!fCaptureActive || !fCapturePending || fCapturePlayer != player)
+			return;
+		fCaptureActive = false;
+		fCapturePending = false;
+		fCaptureTarget = BMessenger();
+	}
+
+	BMessage message(MSG_JOYSTICK_CAPTURE);
+	message.AddInt32("player", player);
+	message.AddInt32("code", (int32)code);
+	target.SendMessage(&message);
+}
+
+void DGenJoystick::BeginCapture(const BMessenger &target, int player)
+{
+	if (player < 0 || player >= 2)
+		return;
+
+	std::lock_guard<std::mutex> lock(sCaptureLock);
+	fCaptureTarget = target;
+	fCapturePlayer = player;
+	fCaptureActive = true;
+	fCapturePending = true;
+	Device *dev = fDevices[player];
+	if (dev != NULL && dev->open)
+		SnapshotCapture(dev);
+}
+
+void DGenJoystick::EndCapture()
+{
+	std::lock_guard<std::mutex> lock(sCaptureLock);
+	fCaptureActive = false;
+	fCapturePending = false;
+	fCaptureTarget = BMessenger();
+}
+
 void dgen_haiku_joystick_open()
 {
 	if (sJoystickOpened)
@@ -287,6 +427,16 @@ void dgen_haiku_joystick_poll()
 	if (!sJoystickOpened)
 		return;
 	sJoystick.Poll();
+}
+
+void dgen_haiku_joystick_begin_capture(const BMessenger &target, int player)
+{
+	sJoystick.BeginCapture(target, player);
+}
+
+void dgen_haiku_joystick_end_capture()
+{
+	sJoystick.EndCapture();
 }
 
 #endif

@@ -6,11 +6,61 @@
 #include <cstdio>
 
 #include "md.h"
+#include "rc-vars.h"
 
 static const char *kActionLabels[DGEN_INPUT_ACTION_COUNT] = {
 	"Up", "Down", "Left", "Right", "A", "B", "C",
 	"X", "Y", "Z", "Mode", "Start"
 };
+
+static const uint32 kJoystickDefaults[2][DGEN_INPUT_ACTION_COUNT] = {
+	{
+		JS_AXIS(0, 1, JS_AXIS_NEGATIVE),
+		JS_AXIS(0, 1, JS_AXIS_POSITIVE),
+		JS_AXIS(0, 0, JS_AXIS_NEGATIVE),
+		JS_AXIS(0, 0, JS_AXIS_POSITIVE),
+		JS_BUTTON(0, 0),
+		JS_BUTTON(0, 3),
+		JS_BUTTON(0, 1),
+		JS_BUTTON(0, 6),
+		JS_BUTTON(0, 4),
+		JS_BUTTON(0, 5),
+		JS_BUTTON(0, 9),
+		JS_BUTTON(0, 8)
+	},
+	{
+		JS_AXIS(1, 1, JS_AXIS_NEGATIVE),
+		JS_AXIS(1, 1, JS_AXIS_POSITIVE),
+		JS_AXIS(1, 0, JS_AXIS_NEGATIVE),
+		JS_AXIS(1, 0, JS_AXIS_POSITIVE),
+		JS_BUTTON(1, 0),
+		JS_BUTTON(1, 3),
+		JS_BUTTON(1, 1),
+		JS_BUTTON(1, 6),
+		JS_BUTTON(1, 4),
+		JS_BUTTON(1, 5),
+		JS_BUTTON(1, 9),
+		JS_BUTTON(1, 8)
+	}
+};
+
+static intptr_t *joystick_var(int player, int action)
+{
+	static intptr_t *vars[2][DGEN_INPUT_ACTION_COUNT] = {
+		{
+			pad1_up, pad1_down, pad1_left, pad1_right, pad1_a, pad1_b,
+			pad1_c, pad1_x, pad1_y, pad1_z, pad1_mode, pad1_start
+		},
+		{
+			pad2_up, pad2_down, pad2_left, pad2_right, pad2_a, pad2_b,
+			pad2_c, pad2_x, pad2_y, pad2_z, pad2_mode, pad2_start
+		}
+	};
+	if (player < 0 || player >= 2 || action < 0 ||
+		action >= DGEN_INPUT_ACTION_COUNT)
+		return NULL;
+	return vars[player][action];
+}
 
 static int32 message_int32(const BMessage &message, const char *name)
 {
@@ -106,6 +156,7 @@ void dgen_input_defaults(DGenInputMap &map)
 			map.keys[player][action].modifiers = 0;
 			map.keys[player][action].key = 0;
 			map.keys[player][action].byteValue = 0;
+			map.joystick[player][action] = kJoystickDefaults[player][action];
 		}
 	}
 
@@ -136,6 +187,28 @@ void dgen_input_defaults(DGenInputMap &map)
 	map.keys[1][DGEN_INPUT_START].key = B_TAB;
 }
 
+void dgen_input_load_current_joystick(DGenInputMap &map)
+{
+	for (int player = 0; player < 2; player++) {
+		for (int action = 0; action < DGEN_INPUT_ACTION_COUNT; action++) {
+			intptr_t *var = joystick_var(player, action);
+			if (var != NULL)
+				map.joystick[player][action] = (uint32)*var;
+		}
+	}
+}
+
+void dgen_input_apply_joystick(const DGenInputMap &map)
+{
+	for (int player = 0; player < 2; player++) {
+		for (int action = 0; action < DGEN_INPUT_ACTION_COUNT; action++) {
+			intptr_t *var = joystick_var(player, action);
+			if (var != NULL)
+				*var = map.joystick[player][action];
+		}
+	}
+}
+
 void dgen_input_load(const BMessage &settings, DGenInputMap &map)
 {
 	dgen_input_defaults(map);
@@ -151,6 +224,9 @@ void dgen_input_load(const BMessage &settings, DGenInputMap &map)
 			if (settings.HasInt32("byteValue", index))
 				map.keys[player][action].byteValue =
 					settings.FindInt32("byteValue", index);
+			if (settings.HasInt32("joy", index))
+				map.joystick[player][action] =
+					(uint32)settings.FindInt32("joy", index);
 		}
 	}
 }
@@ -160,6 +236,7 @@ void dgen_input_save(BMessage &settings, const DGenInputMap &map)
 	settings.RemoveName("modifiers");
 	settings.RemoveName("key");
 	settings.RemoveName("byteValue");
+	settings.RemoveName("joy");
 
 	for (int player = 0; player < 2; player++) {
 		for (int action = 0; action < DGEN_INPUT_ACTION_COUNT; action++) {
@@ -168,6 +245,7 @@ void dgen_input_save(BMessage &settings, const DGenInputMap &map)
 			settings.AddInt32("key", map.keys[player][action].key);
 			settings.AddInt32("byteValue",
 				map.keys[player][action].byteValue);
+			settings.AddInt32("joy", (int32)map.joystick[player][action]);
 		}
 	}
 }
@@ -193,6 +271,37 @@ BString dgen_input_key_label(const DGenKey &key)
 	else
 		label = "Unassigned";
 	return label;
+}
+
+BString dgen_input_joystick_label(uint32 code)
+{
+	if (code == 0)
+		return BString("Unassigned");
+
+	BString label;
+	label.SetToFormat("J%d ", JS_GET_IDENTIFIER(code) + 1);
+	if (JS_IS_BUTTON(code)) {
+		label << "B" << (JS_GET_BUTTON(code) + 1);
+		return label;
+	}
+	if (JS_IS_AXIS(code)) {
+		label << "A" << (JS_GET_AXIS(code) + 1);
+		int direction = JS_GET_AXIS_DIR(code);
+		if (direction == JS_AXIS_NEGATIVE)
+			label << "-";
+		else if (direction == JS_AXIS_POSITIVE)
+			label << "+";
+		return label;
+	}
+	if (JS_IS_HAT(code)) {
+		const char *directions[] = { "center", "up", "right", "down", "left" };
+		int direction = JS_GET_HAT_DIR(code);
+		label << "H" << (JS_GET_HAT(code) + 1);
+		if (direction >= 0 && direction < 5)
+			label << " " << directions[direction];
+		return label;
+	}
+	return BString("Invalid");
 }
 
 bool dgen_input_key_from_message(const BMessage &message, DGenKey &key)
@@ -254,6 +363,22 @@ void dgen_input_clear_conflicts(DGenInputMap &map, int player, int action)
 			if (dgen_input_keys_equal(map.keys[otherPlayer][otherAction],
 					map.keys[player][action]))
 				map.keys[otherPlayer][otherAction] = empty;
+		}
+	}
+}
+
+void dgen_input_clear_joystick_conflicts(DGenInputMap &map, int player,
+	int action, uint32 code)
+{
+	if (code == 0)
+		return;
+	for (int otherPlayer = 0; otherPlayer < 2; otherPlayer++) {
+		for (int otherAction = 0;
+			otherAction < DGEN_INPUT_ACTION_COUNT; otherAction++) {
+			if (otherPlayer == player && otherAction == action)
+				continue;
+			if (map.joystick[otherPlayer][otherAction] == code)
+				map.joystick[otherPlayer][otherAction] = 0;
 		}
 	}
 }

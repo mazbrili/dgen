@@ -29,18 +29,24 @@ struct DGenKey {
 
 struct DGenInputMap {
 	DGenKey keys[2][DGEN_INPUT_ACTION_COUNT];
+	uint32 joystick[2][DGEN_INPUT_ACTION_COUNT];
 };
 
 const char *dgen_input_action_label(int index);
 uint32_t dgen_input_action_mask(int index);
 void dgen_input_defaults(DGenInputMap &map);
+void dgen_input_load_current_joystick(DGenInputMap &map);
+void dgen_input_apply_joystick(const DGenInputMap &map);
 void dgen_input_load(const BMessage &settings, DGenInputMap &map);
 void dgen_input_save(BMessage &settings, const DGenInputMap &map);
 BString dgen_input_key_label(const DGenKey &key);
+BString dgen_input_joystick_label(uint32 code);
 bool dgen_input_key_from_message(const BMessage &message, DGenKey &key);
 bool dgen_input_key_matches(const DGenKey &binding, uint32 modifiers,
 	int32 key, const char *bytes);
 bool dgen_input_keys_equal(const DGenKey &a, const DGenKey &b);
 void dgen_input_clear_conflicts(DGenInputMap &map, int player, int action);
+void dgen_input_clear_joystick_conflicts(DGenInputMap &map, int player,
+	int action, uint32 code);
 
 #endif
